@@ -8,9 +8,11 @@ scraper = Scraper(
     source="MSD Manual",
 )
 
+
 def on_press(key):
     if key == Key.esc:
         scraper.set_stop()
+
 
 listener = Listener(on_press=on_press)
 listener.start()
