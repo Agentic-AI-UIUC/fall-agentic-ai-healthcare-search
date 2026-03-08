@@ -5,3 +5,4 @@ venv-llm/
 .venv
 
 .python-version
+.DS_Store
