@@ -6,10 +6,10 @@ to answer medical questions grounded in the knowledge base.
 """
 
 from pipeline.retriever import retrieve_chunks
-from pipeline.generator import OllamaGenerator
+from pipeline.generator import GroqGenerator
 
 
-def run_pipeline(query: str, top_k: int = 5, model: str = "llama3.2") -> dict:
+def run_pipeline(query: str, top_k: int = 5, model: str = "llama-3.3-70b-versatile") -> dict:
     """
     Full RAG pipeline: query -> retrieve chunks -> generate answer.
 
@@ -26,7 +26,7 @@ def run_pipeline(query: str, top_k: int = 5, model: str = "llama3.2") -> dict:
         }
 
     # 2. Generate answer using the LLM with retrieved context
-    generator = OllamaGenerator(model=model)
+    generator = GroqGenerator(model=model)
     answer = generator.generate(query, chunks)
 
     return {

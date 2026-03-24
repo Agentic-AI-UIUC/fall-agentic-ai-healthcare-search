@@ -17,7 +17,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
-from pipeline.retriever import retrieve_chunks
+from pipeline.main import run_pipeline
 
 # --------------------------------------------------
 # Paths / config
@@ -156,9 +156,9 @@ def chat():
         else:
             augmented_query = user_message
 
-        chunks = retrieve_chunks(augmented_query, top_k=5)
-        answer = build_answer_from_chunks(user_message, chunks)
-        sources = convert_chunks_to_sources(chunks)
+        result = run_pipeline(augmented_query, top_k=5)
+        answer = result["answer"]
+        sources = convert_chunks_to_sources(result["sources"])
 
         return jsonify({
             "answer": answer,
