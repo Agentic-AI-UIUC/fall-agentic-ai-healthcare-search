@@ -1,47 +1,34 @@
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
-from langchain_community.llms import LlamaCpp
-from langchain_core.messages import HumanMessage, AIMessage
+from groq import Groq
 
-from pipeline.prompts import chat_prompt
+from pipeline.prompts import MEDICAL_SYSTEM_PROMPT
 
 load_dotenv()
 
-# ── Model configuration ──────────────────────────────────────────────
-# Point MODEL_PATH to any GGUF file. Override via .env or environment variable.
-# Recommended: Mistral-7B-Instruct, Llama-3-8B-Instruct, or BioMistral-7B in GGUF format.
-MODEL_PATH = os.getenv(
-    "LLAMA_MODEL_PATH",
-    str(Path(__file__).resolve().parent.parent / "models" / "model.gguf"),
-)
+# ── Groq configuration ──────────────────────────────────────────────
 
-_llm = None
+_client = None
+MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+
+def _get_client():
+    global _client
+    if _client is not None:
+        return _client
+
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY environment variable is not set")
+
+    _client = Groq(api_key=api_key)
+    return _client
 
 
 def get_llm():
-    """Lazy-load the LLM so the model file is only read once."""
-    global _llm
-    if _llm is not None:
-        return _llm
-
-    if not Path(MODEL_PATH).exists():
-        raise FileNotFoundError(
-            f"Model file not found at {MODEL_PATH}. "
-            "Download a GGUF model and set LLAMA_MODEL_PATH in your .env file. "
-            "Example: LLAMA_MODEL_PATH=/path/to/mistral-7b-instruct.Q4_K_M.gguf"
-        )
-
-    _llm = LlamaCpp(
-        model_path=MODEL_PATH,
-        n_ctx=4096,
-        n_gpu_layers=-1,        # use GPU if available, 0 for CPU-only
-        temperature=0.3,
-        max_tokens=1024,
-        verbose=False,
-    )
-    return _llm
+    """Return the Groq client. Used by pipeline/main.py for intent classification."""
+    return _get_client()
 
 
 def format_chunks_as_context(chunks: list[dict]) -> str:
@@ -58,52 +45,46 @@ def format_chunks_as_context(chunks: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def format_history(conversation_history: list[dict]) -> list:
-    """Convert raw history dicts into LangChain message objects."""
-    messages = []
-    for msg in conversation_history:
-        role = msg.get("role", "")
-        text = msg.get("text", "")
-        if role == "user":
-            messages.append(HumanMessage(content=text))
-        elif role == "assistant":
-            messages.append(AIMessage(content=text))
-    return messages
-
-
 def generate_answer(
     query: str,
     chunks: list[dict],
     conversation_history: list[dict] | None = None,
 ) -> str:
-    """
-    Generate a grounded medical answer using the local LLM.
-
-    Falls back to a simple chunk summary if the model is not available.
-    """
+    """Generate a grounded medical answer using Groq."""
     context = format_chunks_as_context(chunks)
 
     try:
-        llm = get_llm()
-    except FileNotFoundError:
+        client = _get_client()
+    except ValueError:
         return _fallback_answer(chunks)
 
-    history = format_history(conversation_history or [])
+    system_prompt = MEDICAL_SYSTEM_PROMPT.format(context=context)
 
-    prompt_value = chat_prompt.format_messages(
-        context=context,
-        history=history,
-        query=query,
-    )
+    messages = [{"role": "system", "content": system_prompt}]
 
-    # LlamaCpp expects a single string prompt
-    prompt_str = "\n".join(m.content for m in prompt_value)
-    answer = llm.invoke(prompt_str)
-    return answer.strip()
+    # Add conversation history if present
+    for msg in (conversation_history or []):
+        role = msg.get("role", "")
+        text = msg.get("text", "")
+        if role in ("user", "assistant"):
+            messages.append({"role": role, "content": text})
+
+    messages.append({"role": "user", "content": query})
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1024,
+        )
+        return response.choices[0].message.content or ""
+    except Exception as e:
+        return f"Error communicating with Groq: {str(e)}"
 
 
 def _fallback_answer(chunks: list[dict]) -> str:
-    """Chunk-concatenation fallback when the LLM model file is missing."""
+    """Chunk-concatenation fallback when Groq is not available."""
     if not chunks:
         return (
             "I could not find relevant medical context for that question. "
@@ -123,7 +104,6 @@ def _fallback_answer(chunks: list[dict]) -> str:
 
     parts.extend([
         "",
-        "_Note: Running without an LLM model. Install a GGUF model for full answers. "
-        "See CLAUDE.md Phase 1 for setup instructions._",
+        "_Note: GROQ_API_KEY is not set. Set it in your .env file for full LLM answers._",
     ])
     return "\n".join(parts)

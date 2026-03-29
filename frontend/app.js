@@ -4,7 +4,38 @@ const API = {
   health: "/api/health",
   chat: "/api/chat",
   upload: "/api/upload",
-  intake: "/api/intake",
+  preMedical: "/api/pre_medical",
+};
+
+const elements = {
+  conversationList: document.getElementById("conversationList"),
+  chatMessages: document.getElementById("chatMessages"),
+  chatTitle: document.getElementById("chatTitle"),
+  backendStatusText: document.getElementById("backendStatusText"),
+  composerStatus: document.getElementById("composerStatus"),
+  messageInput: document.getElementById("messageInput"),
+  sendBtn: document.getElementById("sendBtn"),
+  newChatBtn: document.getElementById("newChatBtn"),
+  clearMessagesBtn: document.getElementById("clearMessagesBtn"),
+  mentionUploadBtn: document.getElementById("mentionUploadBtn"),
+  toggleReviewBtn: document.getElementById("toggleReviewBtn"),
+  scrollBottomBtn: document.getElementById("scrollBottomBtn"),
+  fileInput: document.getElementById("fileInput"),
+  fileCard: document.getElementById("fileCard"),
+  suggestions: document.getElementById("suggestions"),
+  reviewPanel: document.getElementById("reviewPanel"),
+  
+  // Pre-Medical Modal
+  preMedicalBtn: document.getElementById("preMedicalBtn"),
+  preMedicalModal: document.getElementById("preMedicalModal"),
+  closeModalBtn: document.getElementById("closeModalBtn"),
+  preMedicalForm: document.getElementById("preMedicalForm"),
+  submitFormBtn: document.getElementById("submitFormBtn"),
+  formStatus: document.getElementById("formStatus"),
+  health: "http://localhost:5000/api/health",
+  chat: "http://localhost:5000/api/chat",
+  upload: "http://localhost:5000/api/upload",
+  intake: "http://localhost:5000/api/intake",
 };
 
 let elements = {};
@@ -94,6 +125,16 @@ function bindEvents() {
   elements.sendBtn.addEventListener("click", handleSend);
   elements.toggleReviewBtn.addEventListener("click", toggleReviewPanel);
   elements.scrollBottomBtn.addEventListener("click", scrollMessagesToBottom);
+
+  elements.preMedicalBtn.addEventListener("click", () => {
+    elements.preMedicalModal.classList.remove("hidden");
+  });
+  
+  elements.closeModalBtn.addEventListener("click", () => {
+    elements.preMedicalModal.classList.add("hidden");
+  });
+
+  elements.submitFormBtn.addEventListener("click", handlePreMedicalSubmit);
 
   elements.messageInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -868,4 +909,91 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+async function handlePreMedicalSubmit() {
+  const formStatus = elements.formStatus;
+  
+  if (!elements.preMedicalForm.checkValidity()) {
+    elements.preMedicalForm.reportValidity();
+    return;
+  }
+
+  const payload = {
+    doctorEmail: document.getElementById("doctorEmail").value,
+    
+    // 1. Basic Demographics
+    patientName: document.getElementById("patientName").value,
+    patientDob: document.getElementById("patientDob").value,
+    patientGender: document.getElementById("patientGender").value,
+    patientContact: document.getElementById("patientContact").value,
+    emergencyContact: document.getElementById("emergencyContact").value,
+    
+    // 2. Insurance & Administrative
+    insuranceInfo: document.getElementById("insuranceInfo").value,
+    referringPhysician: document.getElementById("referringPhysician").value,
+    
+    // 3. Medical History
+    pastIllnesses: document.getElementById("pastIllnesses").value,
+    surgeries: document.getElementById("surgeries").value,
+    immunizations: document.getElementById("immunizations").value,
+    
+    // 4. Medications & Allergies
+    currentMeds: document.getElementById("currentMeds").value,
+    allergies: document.getElementById("allergies").value,
+    
+    // 5. Family History
+    familyHistory: document.getElementById("familyHistory").value,
+    
+    // 6. Social & Lifestyle
+    lifestyleInfo: document.getElementById("lifestyleInfo").value,
+    occupation: document.getElementById("occupation").value,
+    livingSituation: document.getElementById("livingSituation").value,
+    
+    // 7. Mental Health
+    mentalHealth: document.getElementById("mentalHealth").value,
+    
+    // 8. Current Symptoms
+    reason: document.getElementById("visitReason").value,
+    symptoms: document.getElementById("symptomDetails").value,
+    
+    // 9. Review of Systems
+    reviewOfSystems: document.getElementById("reviewOfSystems").value,
+    
+    // 10. Specialty-Specific
+    specialtyQuestions: document.getElementById("specialtyQuestions").value,
+  };
+
+  formStatus.textContent = "Sending...";
+  formStatus.className = "form-status";
+  elements.submitFormBtn.disabled = true;
+
+  try {
+    const response = await fetch(API.preMedical, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to process form");
+    }
+
+    formStatus.textContent = "Sent successfully!";
+    formStatus.className = "form-status success";
+    elements.preMedicalForm.reset();
+    
+    setTimeout(() => {
+      elements.preMedicalModal.classList.add("hidden");
+      formStatus.textContent = "";
+    }, 2000);
+
+  } catch (error) {
+    formStatus.textContent = error.message;
+    formStatus.className = "form-status error";
+  } finally {
+    elements.submitFormBtn.disabled = false;
+  }
 }

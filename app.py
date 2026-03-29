@@ -17,8 +17,13 @@ from pathlib import Path
 import json
 
 from flask import Flask, jsonify, request, send_from_directory, Response
+from dotenv import load_dotenv
+load_dotenv()  # Loads GROQ_API_KEY, SENDER_EMAIL, SENDER_PASSWORD from .env
+
 from werkzeug.utils import secure_filename
 
+from pipeline.main import run_pipeline
+from pipeline.email_sender import process_and_send_pre_medical
 from pipeline.main import run_agent
 from pipeline.agents.intake_agent import run_intake_step
 
@@ -56,6 +61,63 @@ intake_sessions = {}
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def build_answer_from_chunks(user_message: str, chunks: list[dict]) -> str:
+    """
+    Temporary answer builder until generator.py / real LLM is connected.
+    This makes the app usable now by turning retrieved chunks into a plain response.
+    """
+
+    if not chunks:
+        return (
+            "I could not find relevant medical context for that question yet. "
+            "Try rewording the question or make sure the Qdrant collection is populated."
+        )
+
+    top_text = chunks[0].get("text", "").strip()
+    second_text = chunks[1].get("text", "").strip() if len(chunks) > 1 else ""
+
+    preview_1 = top_text[:700].strip()
+    preview_2 = second_text[:400].strip()
+
+    answer_parts = [
+        "Here is a source-grounded explanation based on the most relevant retrieved medical text.",
+        "",
+        preview_1
+    ]
+
+    if preview_2:
+        answer_parts.extend([
+            "",
+            "Additional related context:",
+            preview_2
+        ])
+
+    answer_parts.extend([
+        "",
+        "This response is currently based on retrieved source text rather than a full LLM summary."
+    ])
+
+    return "\n".join(answer_parts)
+
+
+def convert_chunks_to_sources(chunks: list[dict]) -> list[dict]:
+    sources = []
+
+    for i, chunk in enumerate(chunks, start=1):
+        text = chunk.get("text", "") or ""
+        score = chunk.get("score", None)
+        chunk_id = chunk.get("id", None)
+        chunk_source = chunk.get("source", f"Chunk {i}")
+
+        sources.append({
+            "title": f"Source: {chunk_source}" + (f" (ID {chunk_id})" if chunk_id is not None else ""),
+            "snippet": text[:350].strip(),
+            "score": round(float(score), 4) if score is not None else None
+        })
+
+    return sources
 
 
 # --------------------------------------------------
@@ -340,6 +402,26 @@ def upload():
     except Exception as e:
         return jsonify({
             "error": "Upload failed.",
+            "details": str(e)
+        }), 500
+
+@app.route("/api/pre_medical", methods=["POST"])
+def pre_medical():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON payload provided."}), 400
+        
+        result = process_and_send_pre_medical(data)
+        
+        if result.get("status") == "error":
+            return jsonify({"error": result.get("message")}), 500
+            
+        return jsonify({"summary": result.get("message")}), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "Pre-medical form processing failed.",
             "details": str(e)
         }), 500
 

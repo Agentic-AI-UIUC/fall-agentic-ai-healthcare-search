@@ -227,6 +227,91 @@
     </aside>
   </div>
 
+  <!-- Pre-Medical Form Modal -->
+  <div id="preMedicalModal" class="modal-overlay hidden">
+    <div class="modal-content" style="width: min(90vw, 700px);">
+      <div class="modal-header">
+        <h2>Comprehensive Patient Intake</h2>
+        <button id="closeModalBtn" class="ghost-btn">&times;</button>
+      </div>
+      <div class="modal-body" style="padding-right: 18px;">
+        <p class="modal-desc">Please complete the following sections to provide an accurate health history for your doctor.</p>
+        <form id="preMedicalForm">
+          <div class="form-group" style="border-bottom: 1px solid var(--border-soft); padding-bottom: 20px; margin-bottom: 20px;">
+            <label for="doctorEmail"><strong>Doctor's Email</strong> (Required to send summary)</label>
+            <input type="email" id="doctorEmail" required placeholder="doctor@clinic.com" />
+          </div>
+
+          <h3 style="margin-top:0; color: var(--text); font-size: 1.05rem;">1. Basic Demographics</h3>
+          <div class="form-group">
+            <input type="text" id="patientName" required placeholder="Full Name" />
+            <input type="text" id="patientDob" placeholder="Date of Birth (e.g. MM/DD/YYYY)" />
+            <input type="text" id="patientGender" placeholder="Gender" />
+            <textarea id="patientContact" rows="2" placeholder="Address, Phone, Email"></textarea>
+            <input type="text" id="emergencyContact" placeholder="Emergency Contact (Name & Phone)" />
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">2. Insurance & Administrative</h3>
+          <div class="form-group">
+            <input type="text" id="insuranceInfo" placeholder="Insurance Provider & Policy Number" />
+            <input type="text" id="referringPhysician" placeholder="Referring Physician (if any)" />
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">3. Medical History</h3>
+          <div class="form-group">
+            <textarea id="pastIllnesses" rows="2" placeholder="Past illnesses (e.g., Diabetes, Hypertension), Chronic conditions"></textarea>
+            <textarea id="surgeries" rows="2" placeholder="Past Surgeries and Hospitalizations"></textarea>
+            <input type="text" id="immunizations" placeholder="Recent or Notable Immunizations" />
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">4. Medications & Allergies</h3>
+          <div class="form-group">
+            <textarea id="currentMeds" rows="2" placeholder="Current medications (dose + frequency) & OTC supplements"></textarea>
+            <textarea id="allergies" rows="2" placeholder="Allergies (especially drug allergies like Penicillin)"></textarea>
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">5. Family History</h3>
+          <div class="form-group">
+            <textarea id="familyHistory" rows="2" placeholder="Conditions in close relatives (e.g., heart disease, cancer, genetic disorders)"></textarea>
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">6. Social & Lifestyle History</h3>
+          <div class="form-group">
+            <textarea id="lifestyleInfo" rows="2" placeholder="Smoking, alcohol, drug use, diet, exercise habits"></textarea>
+            <input type="text" id="occupation" placeholder="Occupation" />
+            <input type="text" id="livingSituation" placeholder="Living Situation" />
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">7. Mental Health</h3>
+          <div class="form-group">
+            <textarea id="mentalHealth" rows="2" placeholder="History of anxiety, depression, etc. & current stress levels"></textarea>
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">8. Current Symptoms / Reason for Visit</h3>
+          <div class="form-group">
+            <input type="text" id="visitReason" required placeholder="Why you're coming in" />
+            <textarea id="symptomDetails" rows="3" required placeholder="Symptom details: duration, severity, triggers"></textarea>
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">9. Review of Systems (ROS)</h3>
+          <div class="form-group">
+            <textarea id="reviewOfSystems" rows="3" placeholder="Any headaches, chest pain, digestion issues, or sleep problems?"></textarea>
+          </div>
+
+          <h3 style="color: var(--text); font-size: 1.05rem;">10. Specialty-Specific Questions</h3>
+          <div class="form-group">
+            <textarea id="specialtyQuestions" rows="2" placeholder="(Optional) OB/GYN, Cardiology, Psychiatry, or Orthopedic specific history"></textarea>
+          </div>
+
+          <div class="form-actions" style="position: sticky; bottom: -24px; background: var(--panel); padding: 20px 0; border-top: 1px solid var(--border-soft); margin-top: 30px;">
+            <span id="formStatus" class="form-status"></span>
+            <button type="button" id="submitFormBtn" class="primary-soft-btn inline-btn" style="background-color: var(--primary); color: white;">Send Comprehensive Intake to Doctor</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <script src="./app.js"></script>
 </body>
 </html>

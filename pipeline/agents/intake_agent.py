@@ -105,13 +105,19 @@ def build_summary(form: dict) -> str:
 def _extract_with_llm(step: str, user_message: str, form: dict) -> dict:
     """Use the LLM to extract structured info from the user's response."""
     try:
-        llm = get_llm()
+        client = get_llm()
         prompt = INTAKE_EXTRACT_PROMPT.format(
             step=step,
             user_message=user_message,
             current_form=str(form),
         )
-        raw = llm.invoke(prompt).strip()
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=256,
+        )
+        raw = (response.choices[0].message.content or "").strip()
         # The LLM should return key: value lines. Parse them.
         updates = {}
         for line in raw.split("\n"):
@@ -122,22 +128,28 @@ def _extract_with_llm(step: str, user_message: str, form: dict) -> dict:
                 if key in form and value:
                     updates[key] = value
         return updates
-    except (FileNotFoundError, Exception):
+    except (ValueError, Exception):
         return {}
 
 
 def _generate_followup_with_llm(step: str, user_message: str, form: dict) -> str | None:
     """Use LLM to generate a context-aware follow-up question."""
     try:
-        llm = get_llm()
+        client = get_llm()
         prompt = INTAKE_STEP_PROMPT.format(
             step=step,
             step_description=STEP_LABELS.get(step, step),
             user_message=user_message,
             current_form=str(form),
         )
-        return llm.invoke(prompt).strip()
-    except (FileNotFoundError, Exception):
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=256,
+        )
+        return (response.choices[0].message.content or "").strip()
+    except (ValueError, Exception):
         return None
 
 

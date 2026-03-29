@@ -5,3 +5,15 @@ venv-llm/
 .venv
 .env
 models/*.gguf
+
+.python-version
+.DS_Store
+
+.env
+
+# Ignore the large Goldman-Cecil textbook
+data_collection/sources/pdfs/goldman*.pdf
+data_collection/sources/pdfs/*goldman*.pdf
+# (Optional) Ignore processed output files if they exceed GitHub's 100MB limit
+data_collection/processed/*.json
+data_collection/processed/*.txt

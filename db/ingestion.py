@@ -44,23 +44,24 @@ def main():
     print(f"Connecting to Qdrant at {QDRANT_HOST}:{QDRANT_PORT}...")
     client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
-    if not client.collection_exists(COLLECTION_NAME):
-        print(f"Creating hybrid collection '{COLLECTION_NAME}'...")
-        client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config={
-                "pubmedbert": VectorParams(
-                    size=pubmed_size,
-                    distance=Distance.COSINE,
-                ),
-                "bge": VectorParams(
-                    size=bge_size,
-                    distance=Distance.COSINE,
-                )
-            }
-        )
-    else:
-        print(f"Collection '{COLLECTION_NAME}' already exists.")
+    if client.collection_exists(COLLECTION_NAME):
+        print(f"Collection '{COLLECTION_NAME}' already exists. Recreating it to remove stale data...")
+        client.delete_collection(collection_name=COLLECTION_NAME)
+
+    print(f"Creating hybrid collection '{COLLECTION_NAME}'...")
+    client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config={
+            "pubmedbert": VectorParams(
+                size=pubmed_size,
+                distance=Distance.COSINE,
+            ),
+            "bge": VectorParams(
+                size=bge_size,
+                distance=Distance.COSINE,
+            )
+        }
+    )
 
     print(f"Loading chunks from {CHUNKS_FILE}...")
     with open(CHUNKS_FILE, 'r', encoding='utf-8') as f:
@@ -74,17 +75,21 @@ def main():
         batch_chunks = chunks[i:i + BATCH_SIZE]
         print(f"Processing batch {i // BATCH_SIZE + 1}/{(len(chunks) + BATCH_SIZE - 1) // BATCH_SIZE} ({len(batch_chunks)} chunks)...")
         
+        # Ensure mapping works whether chunk is dict or direct string
+        text_batch = [c["text"] if isinstance(c, dict) else c for c in batch_chunks]
+        source_batch = [c.get("source", "Unknown") if isinstance(c, dict) else "Unknown" for c in batch_chunks]
+
         # Generate embeddings for the batch
         print("  Generating PubMedBERT embeddings...")
-        pubmed_embeddings = pubmed_model.encode(batch_chunks, show_progress_bar=True)
+        pubmed_embeddings = pubmed_model.encode(text_batch, show_progress_bar=True)
         
         # Format for BGE as per documentation (typically BGE requires adding an instruction for retrieving, but for passages simply encoding is fine)
         print("  Generating BGE Small embeddings...")
-        bge_embeddings = bge_model.encode(batch_chunks, show_progress_bar=True)
+        bge_embeddings = bge_model.encode(text_batch, show_progress_bar=True)
         
         # Prepare Qdrant points
         points = []
-        for j, text in enumerate(batch_chunks):
+        for j, text in enumerate(text_batch):
             points.append(
                 PointStruct(
                     id=point_id,
@@ -92,7 +97,7 @@ def main():
                         "pubmedbert": pubmed_embeddings[j].tolist(),
                         "bge": bge_embeddings[j].tolist()
                     },
-                    payload={"text": text}
+                    payload={"text": text, "source": source_batch[j]}
                 )
             )
             point_id += 1
