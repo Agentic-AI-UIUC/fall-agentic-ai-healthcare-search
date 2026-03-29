@@ -14,10 +14,14 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()  # Loads GROQ_API_KEY, SENDER_EMAIL, SENDER_PASSWORD from .env
+
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from pipeline.main import run_pipeline
+from pipeline.email_sender import process_and_send_pre_medical
 
 # --------------------------------------------------
 # Paths / config
@@ -215,6 +219,26 @@ def upload():
     except Exception as e:
         return jsonify({
             "error": "Upload failed.",
+            "details": str(e)
+        }), 500
+
+@app.route("/api/pre_medical", methods=["POST"])
+def pre_medical():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON payload provided."}), 400
+        
+        result = process_and_send_pre_medical(data)
+        
+        if result.get("status") == "error":
+            return jsonify({"error": result.get("message")}), 500
+            
+        return jsonify({"summary": result.get("message")}), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "Pre-medical form processing failed.",
             "details": str(e)
         }), 500
 
