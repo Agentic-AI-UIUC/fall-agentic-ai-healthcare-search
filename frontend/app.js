@@ -257,22 +257,38 @@ async function handleIntakeSend() {
 
     updateIntakeProgress(data.step_number, data.total_steps, data.step_label);
 
-    // If intake is complete, show the transition
+    // If intake is complete, show download + continue buttons
     if (data.intake_complete) {
       state.intakeForm = data.intake_form;
       state.hasEnteredApp = true;
       saveState();
 
-      // Show "Continue to assistant" button after a short delay
       setTimeout(() => {
-        const btn = document.createElement("button");
-        btn.className = "landing-cta intake-continue-btn";
-        btn.textContent = "Continue to assistant";
-        btn.addEventListener("click", () => {
+        const actions = document.createElement("div");
+        actions.className = "intake-complete-actions";
+
+        const downloadBtn = document.createElement("a");
+        downloadBtn.className = "landing-cta-secondary intake-download-btn";
+        downloadBtn.href = `/api/intake/${data.intake_session_id}/download`;
+        downloadBtn.download = "";
+        downloadBtn.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download Intake Form
+        `;
+
+        const continueBtn = document.createElement("button");
+        continueBtn.className = "landing-cta intake-continue-btn";
+        continueBtn.textContent = "Continue to assistant";
+        continueBtn.addEventListener("click", () => {
           showMainApp();
           elements.messageInput.focus();
         });
-        elements.intakeMessages.appendChild(btn);
+
+        actions.appendChild(downloadBtn);
+        actions.appendChild(continueBtn);
+        elements.intakeMessages.appendChild(actions);
         scrollIntakeToBottom();
       }, 500);
     }

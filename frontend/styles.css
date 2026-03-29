@@ -385,9 +385,26 @@ button {
   color: var(--text);
 }
 
+.intake-complete-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 8px 0;
+}
+
+.intake-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
 .intake-continue-btn {
-  align-self: center;
-  margin-top: 8px;
+  font-size: 0.95rem;
 }
 
 .intake-composer {
