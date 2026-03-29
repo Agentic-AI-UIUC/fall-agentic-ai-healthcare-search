@@ -1,0 +1,11 @@
+flask
+sentence-transformers
+qdrant-client
+langchain
+langchain-community
+langgraph
+langchain-text-splitters
+llama-cpp-python
+pypdf
+pandas
+python-dotenv

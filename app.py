@@ -17,7 +17,8 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
-from pipeline.main import run_pipeline
+from pipeline.main import run_agent
+from pipeline.agents.intake_agent import run_intake_step
 
 # --------------------------------------------------
 # Paths / config
@@ -39,9 +40,9 @@ app = Flask(
     static_url_path=""
 )
 
-# simple in-memory store for uploaded docs metadata
-# good enough for local dev / prototype
+# simple in-memory stores for local dev / prototype
 uploaded_docs = {}
+intake_sessions = {}
 
 
 # --------------------------------------------------
@@ -50,62 +51,6 @@ uploaded_docs = {}
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-def build_answer_from_chunks(user_message: str, chunks: list[dict]) -> str:
-    """
-    Temporary answer builder until generator.py / real LLM is connected.
-    This makes the app usable now by turning retrieved chunks into a plain response.
-    """
-
-    if not chunks:
-        return (
-            "I could not find relevant medical context for that question yet. "
-            "Try rewording the question or make sure the Qdrant collection is populated."
-        )
-
-    top_text = chunks[0].get("text", "").strip()
-    second_text = chunks[1].get("text", "").strip() if len(chunks) > 1 else ""
-
-    preview_1 = top_text[:700].strip()
-    preview_2 = second_text[:400].strip()
-
-    answer_parts = [
-        "Here is a source-grounded explanation based on the most relevant retrieved medical text.",
-        "",
-        preview_1
-    ]
-
-    if preview_2:
-        answer_parts.extend([
-            "",
-            "Additional related context:",
-            preview_2
-        ])
-
-    answer_parts.extend([
-        "",
-        "This response is currently based on retrieved source text rather than a full LLM summary."
-    ])
-
-    return "\n".join(answer_parts)
-
-
-def convert_chunks_to_sources(chunks: list[dict]) -> list[dict]:
-    sources = []
-
-    for i, chunk in enumerate(chunks, start=1):
-        text = chunk.get("text", "") or ""
-        score = chunk.get("score", None)
-        chunk_id = chunk.get("id", None)
-
-        sources.append({
-            "title": f"Retrieved Chunk {i}" + (f" (ID {chunk_id})" if chunk_id is not None else ""),
-            "snippet": text[:350].strip(),
-            "score": round(float(score), 4) if score is not None else None
-        })
-
-    return sources
 
 
 # --------------------------------------------------
@@ -134,6 +79,55 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/api/intake", methods=["POST"])
+def intake():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        session_id = data.get("intake_session_id")
+        user_message = data.get("message")  # None on first call to start the flow
+
+        # Load or create session
+        if session_id and session_id in intake_sessions:
+            session = intake_sessions[session_id]
+        else:
+            session_id = str(uuid.uuid4())
+            session = {
+                "step": "greeting",
+                "form": None,
+                "messages": [],
+                "complete": False,
+                "emergency": False,
+            }
+
+        # Strip the message if present
+        if user_message is not None:
+            user_message = user_message.strip()
+            if not user_message:
+                user_message = None
+
+        result = run_intake_step(session, user_message)
+        intake_sessions[session_id] = result
+
+        return jsonify({
+            "intake_session_id": session_id,
+            "response": result.get("response", ""),
+            "step": result.get("step", "greeting"),
+            "step_number": result.get("step_number", 1),
+            "total_steps": result.get("total_steps", 5),
+            "step_label": result.get("step_label", ""),
+            "intake_complete": result.get("complete", False),
+            "intake_form": result.get("form") if result.get("complete") else None,
+            "emergency": result.get("emergency", False),
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "Intake processing failed.",
+            "details": str(e)
+        }), 500
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     try:
@@ -145,24 +139,25 @@ def chat():
         if not user_message:
             return jsonify({"error": "Message is required."}), 400
 
-        # If a document was uploaded, append some context note for now.
-        # Later, this can be replaced with real document parsing + retrieval.
+        # Augment query with document context if a file was uploaded
         if uploaded_document_id and uploaded_document_id in uploaded_docs:
             doc_meta = uploaded_docs[uploaded_document_id]
-            augmented_query = (
+            user_message = (
                 f"{user_message}\n\n"
                 f"Uploaded document context: {doc_meta['original_name']}"
             )
-        else:
-            augmented_query = user_message
 
-        result = run_pipeline(augmented_query, top_k=5)
-        answer = result["answer"]
-        sources = convert_chunks_to_sources(result["sources"])
+        # Run the LangGraph agent pipeline
+        result = run_agent(
+            user_message=user_message,
+            conversation_id=data.get("conversation_id"),
+            uploaded_document_id=uploaded_document_id,
+        )
 
         return jsonify({
-            "answer": answer,
-            "sources": sources
+            "answer": result["generated_answer"],
+            "sources": result["sources"],
+            "emergency": result.get("emergency_flag", False),
         }), 200
 
     except Exception as e:

@@ -3,6 +3,8 @@ __pycache__/
 venv-llm/
 .vscode/data_collection/processed/
 .venv
+.env
+models/*.gguf
 
 .python-version
 .DS_Store
