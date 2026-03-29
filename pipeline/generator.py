@@ -1,113 +1,109 @@
 import os
+
+from dotenv import load_dotenv
 from groq import Groq
-from pathlib import Path
-from typing import List, Dict
 
-PROMPTS_DIR = Path(__file__).parent / "prompts"
+from pipeline.prompts import MEDICAL_SYSTEM_PROMPT
 
-def load_prompt(name: str) -> str:
-    prompt_path = PROMPTS_DIR / f"{name}.md"
+load_dotenv()
 
-    if not prompt_path.exists():
-        raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
+# ── Groq configuration ──────────────────────────────────────────────
 
-    return prompt_path.read_text().strip()
+_client = None
+MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 
-class GroqGenerator:
-    def __init__(
-        self,
-        model: str = "llama-3.3-70b-versatile",
-        temperature: float = 0.3,
-        max_tokens: int = 1024
-    ):
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            raise ValueError("GROQ_API_KEY environment variable is not set")
+def _get_client():
+    global _client
+    if _client is not None:
+        return _client
 
-        self.model = model
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.client = Groq(api_key=api_key)
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY environment variable is not set")
 
-        self.system_prompt = load_prompt("system")
-        self.rag_template = load_prompt("rag_template")
-        self.context_template = load_prompt("context_template")
-
-    # format retrieved documents into context string
-    def format_context(self, retrieved_docs: List[Dict]) -> str:
-        context_parts = []
-
-        for i, doc in enumerate(retrieved_docs, 1):
-            url_line = f"URL: {doc.get('url')}" if doc.get('url') else ""
-
-            formatted = self.context_template.format(
-                index=i,
-                title=doc.get('title', 'Unknown'),
-                source_type=doc.get('source', 'Unknown'),
-                url_line=url_line,
-                content=doc.get('text', '')
-            )
-            context_parts.append(formatted)
-
-        return "\n".join(context_parts)
-
-    # build the prompt with context and query
-    def build_prompt(self, query: str, retrieved_docs: List[Dict]) -> str:
-        context = self.format_context(retrieved_docs)
-
-        return self.rag_template.format(
-            context=context,
-            query=query
-        )
-
-    # have Groq generate a response
-    def generate(
-        self,
-        query: str,
-        retrieved_docs: List[Dict],
-    ) -> str:
-        prompt = self.build_prompt(query, retrieved_docs)
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
-            return response.choices[0].message.content or ""
-
-        except Exception as e:
-            return f"Error communicating with Groq: {str(e)}"
-
-    def check_health(self) -> bool:
-        return bool(os.environ.get("GROQ_API_KEY"))
+    _client = Groq(api_key=api_key)
+    return _client
 
 
-# Have LLM generate simple content without RAG context
-def simple_generate(query: str, model: str = "llama-3.3-70b-versatile") -> str:
-    try:
-        generator = GroqGenerator(model=model)
-    except ValueError as e:
-        return f"Error: {str(e)}"
+def get_llm():
+    """Return the Groq client. Used by pipeline/main.py for intent classification."""
+    return _get_client()
 
-    if not generator.check_health():
-        return "Error: GROQ_API_KEY is not set."
+
+def format_chunks_as_context(chunks: list[dict]) -> str:
+    """Turn retrieved chunks into a numbered source block for the prompt."""
+    if not chunks:
+        return "No relevant sources found."
+
+    parts = []
+    for i, chunk in enumerate(chunks, start=1):
+        text = chunk.get("text", "").strip()
+        score = chunk.get("score")
+        score_str = f" (relevance: {score:.4f})" if score is not None else ""
+        parts.append(f"Source {i}{score_str}:\n{text}")
+    return "\n\n".join(parts)
+
+
+def generate_answer(
+    query: str,
+    chunks: list[dict],
+    conversation_history: list[dict] | None = None,
+) -> str:
+    """Generate a grounded medical answer using Groq."""
+    context = format_chunks_as_context(chunks)
 
     try:
-        response = generator.client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": generator.system_prompt},
-                {"role": "user", "content": query},
-            ],
+        client = _get_client()
+    except ValueError:
+        return _fallback_answer(chunks)
+
+    system_prompt = MEDICAL_SYSTEM_PROMPT.format(context=context)
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Add conversation history if present
+    for msg in (conversation_history or []):
+        role = msg.get("role", "")
+        text = msg.get("text", "")
+        if role in ("user", "assistant"):
+            messages.append({"role": role, "content": text})
+
+    messages.append({"role": "user", "content": query})
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
             temperature=0.3,
-            max_tokens=512,
+            max_tokens=1024,
         )
         return response.choices[0].message.content or ""
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error communicating with Groq: {str(e)}"
+
+
+def _fallback_answer(chunks: list[dict]) -> str:
+    """Chunk-concatenation fallback when Groq is not available."""
+    if not chunks:
+        return (
+            "I could not find relevant medical context for that question. "
+            "Try rewording your question or make sure the Qdrant collection is populated."
+        )
+
+    top = chunks[0].get("text", "").strip()[:700]
+    second = chunks[1].get("text", "").strip()[:400] if len(chunks) > 1 else ""
+
+    parts = [
+        "Here is information from the most relevant medical source:",
+        "",
+        top,
+    ]
+    if second:
+        parts.extend(["", "Additional context:", second])
+
+    parts.extend([
+        "",
+        "_Note: GROQ_API_KEY is not set. Set it in your .env file for full LLM answers._",
+    ])
+    return "\n".join(parts)
