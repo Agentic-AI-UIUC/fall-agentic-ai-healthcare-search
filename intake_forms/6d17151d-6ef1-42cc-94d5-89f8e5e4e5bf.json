@@ -1,0 +1,11 @@
+{
+  "chief_complaint": "headaches for 2 weeks",
+  "symptoms": "severity 7, daily",
+  "medications": "ibuprofen, no allergies",
+  "allergies": "",
+  "conditions": "ibuprofen, no allergies",
+  "family_history": "",
+  "lifestyle": "no smoking, run 3x week",
+  "emergency_flag": false,
+  "timestamp": "2026-03-29T21:44:25.276770+00:00"
+}
