@@ -27,17 +27,23 @@ def classify_intent(state: AgentState) -> dict:
     query = state["user_query"]
 
     try:
-        llm = get_llm()
+        client = get_llm()
         prompt_str = intent_prompt.format(query=query)
-        raw = llm.invoke(prompt_str).strip().lower()
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt_str}],
+            temperature=0,
+            max_tokens=20,
+        )
+        raw = (response.choices[0].message.content or "").strip().lower()
 
         # Extract a known intent from the LLM response
         for label in ("question", "document", "greeting", "other"):
             if label in raw:
                 return {"intent": label}
         return {"intent": "question"}
-    except FileNotFoundError:
-        # No model available — default to question so retrieval still works
+    except (ValueError, Exception):
+        # No API key or error — default to question so retrieval still works
         return {"intent": "question"}
 
 

@@ -1,10 +1,10 @@
 const STORAGE_KEY = "healthcare_frontend_live_v3";
 
 const API = {
-  health: "/api/health",
-  chat: "/api/chat",
-  upload: "/api/upload",
-  intake: "/api/intake",
+  health: "http://localhost:5000/api/health",
+  chat: "http://localhost:5000/api/chat",
+  upload: "http://localhost:5000/api/upload",
+  intake: "http://localhost:5000/api/intake",
 };
 
 let elements = {};
