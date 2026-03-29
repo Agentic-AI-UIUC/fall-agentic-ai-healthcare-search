@@ -19,15 +19,22 @@ def main():
     with open(PDF_CHUNKS_JSON, "r", encoding="utf-8") as f:
         pdf_chunks = json.load(f)
 
-    for i, c in enumerate(pdf_chunks, start=1):
+    for i, c_dict in enumerate(pdf_chunks, start=1):
+        if isinstance(c_dict, dict):
+            c = c_dict.get("text", "")
+            src = c_dict.get("source", "Unknown PDF")
+        else:
+            c = c_dict
+            src = "symptoms_to_diagnosis.pdf"
+
         c = (c or "").strip()
         if not c:
             continue
         kb.append({
             "id": f"pdf_{i}",
             "source": "PDF",
-            "doc": "symptoms_to_diagnosis.pdf",
-            "title": "Symptoms to Diagnosis (PDF)",
+            "doc": src,
+            "title": src.replace('.pdf', '').replace('_', ' ').title() if src.endswith('.pdf') else src,
             "url": None,
             "text": c
         })

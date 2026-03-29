@@ -79,7 +79,8 @@ def retrieve_chunks(query_text: str, top_k: int = TOP_K):
         results.append({
             "id": point.id,                     # ID assigned during ingestion
             "score": point.score,               # similarity score
-            "text": point.payload.get("text", "")  # the original chunk text
+            "text": point.payload.get("text", ""),  # the original chunk text
+            "source": point.payload.get("source", "Unknown Document") # the source document name
         })
 
     return results
