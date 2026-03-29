@@ -1,46 +1,143 @@
-<!-- This file defines the structure of the user interface.
-It lays out the full chat application, including the left
-sidebar for saved conversations, the main chat area for user
-and assistant messages, the composer for sending new questions,
-and the right-side document review panel for uploading medical 
-files and previewing breakdown tools. It does not contain backend
-logic itself; it provides the HTML elements that the CSS styles 
-and the JavaScript controls.-->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Healthcare Assistant</title>
+  <title>MedAssist - Healthcare Assistant</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="sidebar-top">
-        <div class="brand">
-          <div class="brand-logo">H+</div>
+
+  <!-- ========== LANDING PAGE ========== -->
+  <div id="landingPage" class="landing-page">
+    <nav class="landing-nav">
+      <div class="landing-brand">
+        <div class="landing-brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M2 12h20"/>
+          </svg>
+        </div>
+        <span class="landing-brand-name">MedAssist</span>
+      </div>
+      <button id="skipIntakeBtn" class="ghost-btn landing-skip-btn">Skip to assistant</button>
+    </nav>
+
+    <!-- Hero (shown before intake starts) -->
+    <div id="landingHero" class="landing-content">
+      <div class="landing-hero">
+        <div class="landing-badge">AI-Powered Health Guidance</div>
+        <h1 class="landing-title">Your Personal<br/>Health Intake Assistant</h1>
+        <p class="landing-subtitle">
+          Start by telling us about your symptoms and health concerns. Our AI assistant
+          will help you create a comprehensive intake form before your visit.
+        </p>
+        <div class="landing-actions">
+          <button id="beginIntakeBtn" class="landing-cta">
+            Begin Intake
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+          </button>
+          <button id="skipIntakeBtn2" class="landing-cta-secondary">
+            Skip, go to assistant
+          </button>
+        </div>
+      </div>
+
+      <div class="landing-features">
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+            </svg>
+          </div>
+          <h3>Symptom Chat</h3>
+          <p>Describe your symptoms in plain language and receive guided follow-up questions.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </div>
+          <h3>Document Review</h3>
+          <p>Upload lab results or medical documents and get clear, plain-language explanations.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <h3>Source-Backed Answers</h3>
+          <p>Every response is grounded in verified medical literature with cited sources.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Intake chat (shown after "Begin Intake" is clicked) -->
+    <div id="intakeChat" class="intake-chat hidden">
+      <div class="intake-chat-container">
+        <div class="intake-header">
           <div>
-            <h1>Healthcare Assistant</h1>
-            <p>Source-grounded medical explanations in plain language</p>
+            <h2>Patient Intake</h2>
+            <p id="intakeStepLabel">Step 1 of 5 — Chief Complaint</p>
+          </div>
+          <div class="intake-progress">
+            <div class="intake-progress-bar">
+              <div id="intakeProgressFill" class="intake-progress-fill" style="width: 20%"></div>
+            </div>
           </div>
         </div>
 
-        <button id="newChatBtn" class="primary-soft-btn full-width">+ New conversation</button>
+        <div id="intakeMessages" class="intake-messages"></div>
+
+        <div class="intake-composer">
+          <div class="intake-composer-main">
+            <textarea
+              id="intakeInput"
+              placeholder="Type your response..."
+              rows="1"
+            ></textarea>
+            <button id="intakeSendBtn" class="send-btn">Send</button>
+          </div>
+          <div class="intake-composer-footer">
+            <button id="skipIntakeFromChat" class="ghost-btn">Skip intake, go to assistant</button>
+            <span id="intakeStatus">Ready</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="landingFooter" class="landing-footer">
+      <p>Not a substitute for professional medical advice. Always consult a healthcare provider.</p>
+    </div>
+  </div>
+
+  <!-- ========== MAIN APP ========== -->
+  <div id="mainApp" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand">
+          <div class="brand-logo">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2v20M2 12h20"/>
+            </svg>
+          </div>
+          <div>
+            <h1>MedAssist</h1>
+            <p>Source-grounded medical answers</p>
+          </div>
+        </div>
+
+        <button id="newChatBtn" class="primary-btn full-width">+ New conversation</button>
       </div>
 
       <div class="sidebar-section-label">Conversations</div>
       <div id="conversationList" class="conversation-list"></div>
 
       <div class="sidebar-bottom">
-        <div class="user-chip">
-          <div class="user-avatar">N</div>
-          <div>
-            <div class="user-name">Noemia</div>
-            <div class="user-meta">Frontend live mode</div>
-          </div>
-        </div>
+        <button id="backToLandingBtn" class="ghost-btn full-width">Back to home</button>
       </div>
     </aside>
 
@@ -52,19 +149,17 @@ and the JavaScript controls.-->
         </div>
 
         <div class="chat-header-actions">
-          <button id="toggleReviewBtn" class="ghost-btn">Document review</button>
+          <button id="toggleReviewBtn" class="ghost-btn">Documents</button>
           <button id="scrollBottomBtn" class="ghost-btn">Latest</button>
         </div>
       </header>
 
       <section id="chatMessages" class="chat-messages">
         <div class="date-pill">Today</div>
-
         <div class="intro-card">
           <div class="mini-label">Welcome</div>
           <p>
             Ask a medical question, upload a document, and review source-backed answers.
-            Retrieved sources will appear directly under assistant responses.
           </p>
         </div>
       </section>
@@ -78,22 +173,16 @@ and the JavaScript controls.-->
         </div>
 
         <div class="chat-composer">
-          <div class="composer-tools">
-            <button id="mentionUploadBtn" class="tool-btn">Use uploaded document</button>
-            <button id="clearMessagesBtn" class="tool-btn">Clear current chat</button>
-          </div>
-
           <div class="composer-main">
             <textarea
               id="messageInput"
-              placeholder="Message the healthcare assistant..."
+              placeholder="Describe your symptoms or ask a medical question..."
               rows="1"
             ></textarea>
             <button id="sendBtn" class="send-btn">Send</button>
           </div>
 
           <div class="composer-footer">
-            <span>Answers are expected to come from your Flask backend</span>
             <span id="composerStatus">Ready</span>
           </div>
         </div>
@@ -102,19 +191,23 @@ and the JavaScript controls.-->
 
     <aside class="review-panel" id="reviewPanel">
       <div class="review-header">
-        <h3>Document review & breakdown</h3>
-        <p>Upload a medical document and ask the assistant to explain it in plain language.</p>
+        <h3>Document Review</h3>
+        <p>Upload a medical document to start a conversation about it.</p>
       </div>
 
       <div class="review-content">
         <div class="review-section-label">Upload</div>
 
-        <label class="upload-zone" for="fileInput">
+        <label class="upload-zone" for="fileInput" id="uploadZone">
           <input id="fileInput" type="file" accept=".pdf,.txt,.doc,.docx,.png,.jpg,.jpeg" hidden />
-          <div class="upload-icon">+</div>
+          <div class="upload-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
           <h4>Drop in a medical document</h4>
-          <p>Lab report, discharge summary, doctor note, medication sheet, or imaging summary.</p>
-          <span class="primary-soft-btn inline-btn">Choose file</span>
+          <p>Lab report, discharge summary, doctor note, medication sheet, or imaging result.</p>
+          <span class="primary-btn inline-btn">Choose file</span>
         </label>
 
         <div class="review-section-label">Current file</div>
@@ -123,32 +216,12 @@ and the JavaScript controls.-->
           <p class="file-meta">Upload a file to begin document review.</p>
         </div>
 
-        <div class="review-section-label">Breakdown shortcuts</div>
+        <div class="review-section-label">Quick actions</div>
         <div class="breakdown-grid">
           <button class="breakdown-card" data-prompt="Explain this document in simple language.">Explain simply</button>
-          <button class="breakdown-card" data-prompt="Summarize the medications in this document.">Medication summary</button>
-          <button class="breakdown-card" data-prompt="What follow-up steps does this document suggest?">Follow-up steps</button>
+          <button class="breakdown-card" data-prompt="Summarize the medications in this document.">Medications</button>
+          <button class="breakdown-card" data-prompt="What follow-up steps does this document suggest?">Follow-ups</button>
           <button class="breakdown-card" data-prompt="What urgent warning signs are mentioned here?">Warning signs</button>
-        </div>
-
-        <div class="review-section-label">How it should behave</div>
-        <div class="breakdown-list">
-          <div class="breakdown-item">
-            <strong>Main diagnosis</strong>
-            <span>Clearly restates the biggest issue in patient-friendly language.</span>
-          </div>
-          <div class="breakdown-item">
-            <strong>What changed</strong>
-            <span>Highlights medications, findings, or care-plan updates.</span>
-          </div>
-          <div class="breakdown-item">
-            <strong>Next steps</strong>
-            <span>Turns instructions into a short, understandable checklist.</span>
-          </div>
-          <div class="breakdown-item">
-            <strong>Red flags</strong>
-            <span>Separates routine guidance from symptoms that might need urgent care.</span>
-          </div>
         </div>
       </div>
     </aside>

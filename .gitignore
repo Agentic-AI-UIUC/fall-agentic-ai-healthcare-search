@@ -3,3 +3,5 @@ __pycache__/
 venv-llm/
 .vscode/data_collection/processed/
 .venv
+.env
+models/*.gguf
