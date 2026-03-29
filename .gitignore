@@ -5,3 +5,8 @@ venv-llm/
 .venv
 .env
 models/*.gguf
+
+.python-version
+.DS_Store
+
+.env

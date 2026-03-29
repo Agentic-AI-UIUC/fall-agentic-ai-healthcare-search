@@ -21,14 +21,16 @@ from qdrant_client import QdrantClient
 # -------------------------------
 
 # Name of the collection (table) inside Qdrant where our chunks are stored
-COLLECTION_NAME = "medical_chunks"
+# Name of the collection (table) inside Qdrant where our chunks are stored
+COLLECTION_NAME = "medical_chunks_hybrid_fast"
 
 # Where the Qdrant database is running
 QDRANT_HOST = "localhost"
 QDRANT_PORT = 6333
 
 # Embedding model used for both ingestion AND query embedding
-MODEL_NAME = "all-MiniLM-L6-v2"
+# (Switching to the fast BGE model we configured in ingestion.py)
+MODEL_NAME = "BAAI/bge-small-en-v1.5"
 
 # Number of results we want Qdrant to return
 TOP_K = 5
@@ -56,13 +58,17 @@ def retrieve_chunks(query_text: str, top_k: int = TOP_K):
     chunks from the vector database.
     """
 
-    # Convert the user query into a vector using the same embedding model
-    query_vector = model.encode(query_text).tolist()
+    # BGE models perform best when queries are prefixed with this specific instruction
+    bge_query = "Represent this sentence for searching relevant passages: " + query_text
 
-    # Ask Qdrant to find the most similar stored vectors
+    # Convert the user query into a vector using the same embedding model
+    query_vector = model.encode(bge_query).tolist()
+
+    # Ask Qdrant to find the most similar stored vectors (targeting the 'bge' named vectors)
     search_result = client.query_points(
         collection_name=COLLECTION_NAME,
         query=query_vector,
+        using="bge",  # We must specify which named vector to query in our hybrid collection
         limit=top_k,  # number of results we want back
     )
 

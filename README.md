@@ -19,7 +19,7 @@ See the repository root to explore files and modules.
 ## Techstack (current / planned)
 - RAG: LangChain
 - Vector DB: Qdrant (local via Docker for development; can swap to Chroma/others)
-- Embeddings: sentence-transformers (for indexing and query embeddings)
+- Embeddings: sentence-transformers (for indexing and query embeddings using PubMedBERT and BGE Large Hybrid)
 - Model hosting: TBD (local Ollama LLM or hosted providers; Groq, etc. considered)
 
 ## RAG Pipeline (high-level)
@@ -52,14 +52,19 @@ See the repository root to explore files and modules.
 - LLM interface: `pipeline/generator.py` — contains prompt templates and code that calls the model.
 - Retriever: `pipeline/retriever.py` — handles vector DB queries and result ranking.
 
-## Running Qdrant (dev quickstart)
-1. Start Qdrant with Docker Compose or the official image:
+## 🚀 Server Setup & Automated Ingestion
+1. Start Qdrant with Docker Compose or the official image in the background:
 
 ```sh
-docker run -p 6333:6333 -v qdrant_storage:/qdrant/storage qdrant/qdrant:v1.2.0
+docker run -d -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
 ```
 
-2. Use `db/ingestion.py` (or `db/test_qdrant.py`) to connect, create a collection, and upsert vectors.
+2. Generate embeddings and ingest chunks automatically into the vector database using our hybrid models (`pritamdeka/S-PubMedBert-MS-MARCO` + `BAAI/bge-large-en-v1.5`):
+
+```sh
+python db/ingestion.py
+```
+This script will parse all processed texts, embed them, upload them natively to Qdrant, and perform a small retrieval test.
 
 ## Notes and next steps
 - This repo has been refactored so active code lives in `data_collection/`, `db/`, and `pipeline/`.

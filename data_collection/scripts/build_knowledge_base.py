@@ -3,7 +3,7 @@ import pandas as pd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 MSD_CSV = "data_collection/msd_articles.csv"
-PDF_CHUNKS_JSON = "data_collection/pdf_cleaner/clean_chunks.json"
+PDF_CHUNKS_JSON = "data_collection/processed/clean_chunks.json"
 
 OUT_KB_JSON = "data_collection/knowledge_base.json"
 OUT_KB_TXT = "data_collection/knowledge_base_preview.txt"

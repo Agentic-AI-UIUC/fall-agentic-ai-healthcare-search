@@ -4,21 +4,28 @@ import re
 import json
 import os
 
-PDF_DIR = "data_collection/pdfs"
+PDF_DIR = "data_collection/sources/pdfs"
 
+full_text_list = []
 for filename in os.listdir(PDF_DIR):
     if filename.endswith(".pdf"):
         pdf_path = os.path.join(PDF_DIR, filename)
+        print(f"Reading {filename}...")
         reader = PdfReader(pdf_path)
 
-#Extract raw text from every page
-full_text = ""
-for page in reader.pages:
-    text = page.extract_text()
+        #Extract raw text from every page
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text()
 
-    if text:
-        # Replace line breaks with spaces
-        full_text += text.replace("\n", " ") + " "
+            if text:
+                # Replace line breaks with spaces
+                full_text_list.append(text.replace("\n", " "))
+            
+            if (i + 1) % 100 == 0:
+                print(f"  Processed {i + 1} pages...")
+
+print("Finished reading all PDFs. Grouping and cleaning text...")
+full_text = " ".join(full_text_list)
 
 #clean hyphens or extra whitespaces 
 full_text = re.sub(r"(\w)-\s+(\w)", r"\1\2", full_text) 
@@ -96,11 +103,11 @@ for i, chunk in enumerate(clean_chunks[:3]):
 
 
 #save outputs
-with open("clean_chunks.txt", "w", encoding="utf-8") as f:
+with open("data_collection/processed/clean_chunks.txt", "w", encoding="utf-8") as f:
     for i, c in enumerate(clean_chunks, start=1):
         f.write(f"--- CHUNK {i} ---\n{c}\n\n")
 
-with open("clean_chunks.json", "w", encoding="utf-8") as f:
+with open("data_collection/processed/clean_chunks.json", "w", encoding="utf-8") as f:
     json.dump(clean_chunks, f, ensure_ascii=False, indent=2)
 
 print("\nSaved clean_chunks.txt and clean_chunks.json")
