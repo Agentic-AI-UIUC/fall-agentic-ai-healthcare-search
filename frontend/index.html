@@ -149,6 +149,7 @@
         </div>
 
         <div class="chat-header-actions">
+          <button id="doctorModeToggle" class="ghost-btn doctor-toggle-btn">Doctor Practice</button>
           <button id="toggleReviewBtn" class="ghost-btn">Documents</button>
           <button id="scrollBottomBtn" class="ghost-btn">Latest</button>
         </div>
@@ -188,6 +189,72 @@
         </div>
       </footer>
     </main>
+
+    <!-- Doctor Practice Panel — swaps in when doctor mode is active -->
+    <aside class="doctor-panel hidden" id="doctorPanel">
+      <div class="review-header">
+        <h3>Practice Case</h3>
+        <div class="doctor-panel-actions" style="margin-top:8px">
+          <button id="newCaseBtn" class="primary-btn full-width">New Case</button>
+        </div>
+      </div>
+
+      <div class="review-content">
+        <!-- Case Card + Progress -->
+        <div id="caseCard" class="case-card">
+          <div class="case-card-empty">Click "New Case" to load a patient.</div>
+        </div>
+
+        <div id="caseProgress" class="case-progress hidden">
+          <span class="progress-dot" id="dotHistory" title="History">Hx</span>
+          <span class="progress-dot" id="dotExam" title="Physical Exam">PE</span>
+          <span class="progress-dot" id="dotLabs" title="Labs/Imaging">Dx</span>
+        </div>
+
+        <!-- Tabs -->
+        <div class="doctor-tabs">
+          <button class="doctor-tab active" data-tab="actions">Actions</button>
+          <button class="doctor-tab" data-tab="differential">Differential</button>
+          <button class="doctor-tab" data-tab="quiz">Quiz</button>
+          <button class="doctor-tab" data-tab="teaching">Results</button>
+        </div>
+
+        <!-- Tab: Actions -->
+        <div class="doctor-tab-content active" id="tabActions">
+          <div class="breakdown-grid">
+            <button class="doctor-chip" data-prompt="What's been bothering you?">Chief Complaint</button>
+            <button class="doctor-chip" data-prompt="Tell me about your medical history — past illnesses, surgeries, and current medications.">Medical History</button>
+            <button class="doctor-chip" data-prompt="I'd like to examine you now. Can you sit up for me?">Physical Exam</button>
+            <button class="doctor-chip" data-prompt="I'm going to order some blood work — a CBC, a complete metabolic panel, and a chest X-ray.">Order Labs</button>
+          </div>
+          <button id="submitDiagnosisBtn" class="ghost-btn full-width" style="margin-top:12px">Submit Diagnosis...</button>
+        </div>
+
+        <!-- Tab: Differential Builder -->
+        <div class="doctor-tab-content" id="tabDifferential">
+          <p class="tab-desc">Build your differential. Add hypotheses and check them against the case.</p>
+          <div class="diff-input-row">
+            <input type="text" id="diffInput" placeholder="e.g. Pneumonia" />
+            <button id="addDiffBtn" class="primary-btn">Add</button>
+          </div>
+          <div id="diffList" class="diff-list"></div>
+          <button id="checkDiffBtn" class="ghost-btn full-width" style="margin-top:8px">Check Differential</button>
+        </div>
+
+        <!-- Tab: Quiz -->
+        <div class="doctor-tab-content" id="tabQuiz">
+          <button id="loadQuizBtn" class="primary-btn full-width">Generate Quiz</button>
+          <div id="quizContainer" class="quiz-container"></div>
+        </div>
+
+        <!-- Tab: Teaching / Results -->
+        <div class="doctor-tab-content" id="tabTeaching">
+          <div id="evaluationCard" class="evaluation-card">
+            <p class="tab-desc">Submit your diagnosis to unlock results and teaching points.</p>
+          </div>
+        </div>
+      </div>
+    </aside>
 
     <aside class="review-panel" id="reviewPanel">
       <div class="review-header">

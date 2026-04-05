@@ -5,37 +5,11 @@ const API = {
   chat: "/api/chat",
   upload: "/api/upload",
   preMedical: "/api/pre_medical",
-};
-
-const elements = {
-  conversationList: document.getElementById("conversationList"),
-  chatMessages: document.getElementById("chatMessages"),
-  chatTitle: document.getElementById("chatTitle"),
-  backendStatusText: document.getElementById("backendStatusText"),
-  composerStatus: document.getElementById("composerStatus"),
-  messageInput: document.getElementById("messageInput"),
-  sendBtn: document.getElementById("sendBtn"),
-  newChatBtn: document.getElementById("newChatBtn"),
-  clearMessagesBtn: document.getElementById("clearMessagesBtn"),
-  mentionUploadBtn: document.getElementById("mentionUploadBtn"),
-  toggleReviewBtn: document.getElementById("toggleReviewBtn"),
-  scrollBottomBtn: document.getElementById("scrollBottomBtn"),
-  fileInput: document.getElementById("fileInput"),
-  fileCard: document.getElementById("fileCard"),
-  suggestions: document.getElementById("suggestions"),
-  reviewPanel: document.getElementById("reviewPanel"),
-  
-  // Pre-Medical Modal
-  preMedicalBtn: document.getElementById("preMedicalBtn"),
-  preMedicalModal: document.getElementById("preMedicalModal"),
-  closeModalBtn: document.getElementById("closeModalBtn"),
-  preMedicalForm: document.getElementById("preMedicalForm"),
-  submitFormBtn: document.getElementById("submitFormBtn"),
-  formStatus: document.getElementById("formStatus"),
-  health: "http://localhost:5000/api/health",
-  chat: "http://localhost:5000/api/chat",
-  upload: "http://localhost:5000/api/upload",
-  intake: "http://localhost:5000/api/intake",
+  intake: "/api/intake",
+  doctorSession: "/api/doctor/session",
+  doctorChat: "/api/doctor/chat",
+  doctorQuiz: "/api/doctor/quiz",
+  doctorDiff: "/api/doctor/differential",
 };
 
 let elements = {};
@@ -79,6 +53,30 @@ document.addEventListener("DOMContentLoaded", () => {
     suggestions: document.getElementById("suggestions"),
     reviewPanel: document.getElementById("reviewPanel"),
     uploadZone: document.getElementById("uploadZone"),
+    // Pre-Medical Modal
+    preMedicalBtn: document.getElementById("preMedicalBtn"),
+    preMedicalModal: document.getElementById("preMedicalModal"),
+    closeModalBtn: document.getElementById("closeModalBtn"),
+    preMedicalForm: document.getElementById("preMedicalForm"),
+    submitFormBtn: document.getElementById("submitFormBtn"),
+    formStatus: document.getElementById("formStatus"),
+    // Doctor Practice Mode
+    doctorModeToggle: document.getElementById("doctorModeToggle"),
+    doctorPanel: document.getElementById("doctorPanel"),
+    newCaseBtn: document.getElementById("newCaseBtn"),
+    caseCard: document.getElementById("caseCard"),
+    caseProgress: document.getElementById("caseProgress"),
+    dotHistory: document.getElementById("dotHistory"),
+    dotExam: document.getElementById("dotExam"),
+    dotLabs: document.getElementById("dotLabs"),
+    evaluationCard: document.getElementById("evaluationCard"),
+    submitDiagnosisBtn: document.getElementById("submitDiagnosisBtn"),
+    diffInput: document.getElementById("diffInput"),
+    addDiffBtn: document.getElementById("addDiffBtn"),
+    diffList: document.getElementById("diffList"),
+    checkDiffBtn: document.getElementById("checkDiffBtn"),
+    loadQuizBtn: document.getElementById("loadQuizBtn"),
+    quizContainer: document.getElementById("quizContainer"),
   };
 
   init();
@@ -126,15 +124,55 @@ function bindEvents() {
   elements.toggleReviewBtn.addEventListener("click", toggleReviewPanel);
   elements.scrollBottomBtn.addEventListener("click", scrollMessagesToBottom);
 
-  elements.preMedicalBtn.addEventListener("click", () => {
-    elements.preMedicalModal.classList.remove("hidden");
-  });
-  
-  elements.closeModalBtn.addEventListener("click", () => {
-    elements.preMedicalModal.classList.add("hidden");
+  if (elements.preMedicalBtn) {
+    elements.preMedicalBtn.addEventListener("click", () => {
+      elements.preMedicalModal.classList.remove("hidden");
+    });
+  }
+
+  if (elements.closeModalBtn) {
+    elements.closeModalBtn.addEventListener("click", () => {
+      elements.preMedicalModal.classList.add("hidden");
+    });
+  }
+
+  if (elements.submitFormBtn) {
+    elements.submitFormBtn.addEventListener("click", handlePreMedicalSubmit);
+  }
+
+  // Doctor Practice Mode
+  elements.doctorModeToggle.addEventListener("click", toggleDoctorMode);
+  elements.newCaseBtn.addEventListener("click", loadNewCase);
+
+  // Tab switching
+  document.querySelectorAll(".doctor-tab").forEach((tab) => {
+    tab.addEventListener("click", () => switchDoctorTab(tab.dataset.tab));
   });
 
-  elements.submitFormBtn.addEventListener("click", handlePreMedicalSubmit);
+  // Quick action chips
+  document.querySelectorAll(".doctor-chip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      elements.messageInput.value = btn.dataset.prompt || "";
+      autoResizeTextarea();
+      elements.messageInput.focus();
+    });
+  });
+
+  // Submit diagnosis button
+  elements.submitDiagnosisBtn.addEventListener("click", () => {
+    elements.messageInput.value = "My diagnosis is: ";
+    elements.messageInput.focus();
+  });
+
+  // Differential builder
+  elements.addDiffBtn.addEventListener("click", addDifferentialHypothesis);
+  elements.diffInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addDifferentialHypothesis(); }
+  });
+  elements.checkDiffBtn.addEventListener("click", checkDifferentialHypotheses);
+
+  // Quiz
+  elements.loadQuizBtn.addEventListener("click", loadQuiz);
 
   elements.messageInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -202,6 +240,7 @@ function showMainApp() {
   elements.landingPage.classList.add("hidden");
   elements.mainApp.classList.remove("hidden");
   ensureConversationExists();
+  applyMode();
   renderAll();
 }
 
@@ -393,28 +432,24 @@ function scrollIntakeToBottom() {
 
 function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return {
-      conversations: [],
-      currentConversationId: null,
-      uploadedFile: null,
-      hasEnteredApp: false,
-      intakeSessionId: null,
-      intakeForm: null,
-    };
-  }
+  const defaults = {
+    conversations: [],
+    currentConversationId: null,
+    uploadedFile: null,
+    hasEnteredApp: false,
+    intakeSessionId: null,
+    intakeForm: null,
+    appMode: "patient",
+    doctorSessionId: null,
+    activeCase: null,
+  };
+
+  if (!raw) return defaults;
 
   try {
-    return JSON.parse(raw);
+    return { ...defaults, ...JSON.parse(raw) };
   } catch {
-    return {
-      conversations: [],
-      currentConversationId: null,
-      uploadedFile: null,
-      hasEnteredApp: false,
-      intakeSessionId: null,
-      intakeForm: null,
-    };
+    return defaults;
   }
 }
 
@@ -581,6 +616,10 @@ async function checkBackendHealth() {
    ============================ */
 
 async function handleSend() {
+  if (state.appMode === "doctor") {
+    return handleDoctorSend();
+  }
+
   const text = elements.messageInput.value.trim();
   if (!text || requestInFlight) return;
 
@@ -909,6 +948,336 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+/* ============================
+   DOCTOR PRACTICE MODE
+   ============================ */
+
+let doctorDifferential = [];
+
+function toggleDoctorMode() {
+  state.appMode = state.appMode === "patient" ? "doctor" : "patient";
+  saveState();
+  applyMode();
+}
+
+function applyMode() {
+  const isDoctor = state.appMode === "doctor";
+  document.body.classList.toggle("doctor-mode", isDoctor);
+
+  elements.doctorModeToggle.textContent = isDoctor ? "Exit Practice" : "Doctor Practice";
+  elements.doctorModeToggle.classList.toggle("doctor-mode-active", isDoctor);
+
+  elements.reviewPanel.classList.toggle("hidden", isDoctor);
+  elements.doctorPanel.classList.toggle("hidden", !isDoctor);
+
+  elements.messageInput.placeholder = isDoctor
+    ? "Ask the patient a question, examine them, order tests, or state your diagnosis..."
+    : "Describe your symptoms or ask a medical question...";
+
+  if (isDoctor) {
+    renderCaseCard();
+    updateProgressDots({});
+  }
+}
+
+function switchDoctorTab(tabName) {
+  document.querySelectorAll(".doctor-tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tabName));
+  document.querySelectorAll(".doctor-tab-content").forEach((c) => c.classList.remove("active"));
+  const target = document.getElementById("tab" + tabName.charAt(0).toUpperCase() + tabName.slice(1));
+  if (target) target.classList.add("active");
+}
+
+async function loadNewCase() {
+  elements.newCaseBtn.disabled = true;
+  elements.newCaseBtn.textContent = "Loading patient...";
+  doctorDifferential = [];
+  elements.diffList.innerHTML = "";
+  elements.quizContainer.innerHTML = "";
+  elements.evaluationCard.innerHTML = `<p class="tab-desc">Submit your diagnosis to unlock results and teaching points.</p>`;
+
+  try {
+    const resp = await fetch(API.doctorSession, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    if (!resp.ok) throw new Error("Failed to generate case");
+
+    const data = await resp.json();
+    state.doctorSessionId = data.session_id;
+    state.activeCase = data.case;
+    saveState();
+
+    renderCaseCard();
+    updateProgressDots({});
+    elements.caseProgress.classList.remove("hidden");
+    switchDoctorTab("actions");
+
+    const convo = makeConversation("Doctor Practice Session");
+    state.conversations.unshift(convo);
+    state.currentConversationId = convo.id;
+
+    convo.messages.push({
+      id: crypto.randomUUID(),
+      role: "assistant",
+      text: data.greeting,
+      sources: [],
+      timestamp: new Date().toISOString(),
+    });
+
+    saveState();
+    renderAll();
+    scrollMessagesToBottom();
+  } catch (err) {
+    elements.caseCard.innerHTML = `<div class="case-card-empty" style="color:var(--danger)">Failed to load case. Is the backend running?</div>`;
+  } finally {
+    elements.newCaseBtn.disabled = false;
+    elements.newCaseBtn.textContent = "New Case";
+  }
+}
+
+async function handleDoctorSend() {
+  const text = elements.messageInput.value.trim();
+  if (!text || requestInFlight) return;
+
+  if (!state.doctorSessionId) {
+    await loadNewCase();
+    return;
+  }
+
+  const convo = getCurrentConversation();
+  if (!convo) return;
+
+  convo.messages.push({ id: crypto.randomUUID(), role: "user", text, timestamp: new Date().toISOString() });
+  elements.messageInput.value = "";
+  autoResizeTextarea();
+
+  const typingId = crypto.randomUUID();
+  convo.messages.push({ id: typingId, role: "typing", timestamp: new Date().toISOString() });
+
+  requestInFlight = true;
+  saveState();
+  renderMessages();
+  scrollMessagesToBottom();
+
+  try {
+    const resp = await fetch(API.doctorChat, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: state.doctorSessionId, message: text }),
+    });
+
+    if (!resp.ok) throw new Error(`Backend returned ${resp.status}`);
+    const data = await resp.json();
+
+    convo.messages = convo.messages.filter((m) => m.id !== typingId);
+    convo.messages.push({
+      id: crypto.randomUUID(), role: "assistant",
+      text: data.response || "...", sources: [], timestamp: new Date().toISOString(),
+    });
+
+    if (data.revealed) updateProgressDots(data.revealed);
+
+    if (data.session_complete && data.evaluation) {
+      renderEvaluationCard(data.evaluation);
+      switchDoctorTab("teaching");
+    }
+
+    elements.composerStatus.textContent = "Ready";
+  } catch (err) {
+    convo.messages = convo.messages.filter((m) => m.id !== typingId);
+    convo.messages.push({
+      id: crypto.randomUUID(), role: "error",
+      text: err.message || "Something went wrong.", timestamp: new Date().toISOString(),
+    });
+    elements.composerStatus.textContent = "Request failed";
+  } finally {
+    requestInFlight = false;
+    saveState();
+    renderAll();
+    scrollMessagesToBottom();
+  }
+}
+
+// ── Case card & progress ──
+
+function renderCaseCard() {
+  if (!state.activeCase) {
+    elements.caseCard.innerHTML = `<div class="case-card-empty">Click "New Case" to load a patient.</div>`;
+    elements.caseProgress.classList.add("hidden");
+    return;
+  }
+
+  const d = state.activeCase.difficulty || "beginner";
+  const dc = d === "advanced" ? "diff-hard" : d === "intermediate" ? "diff-mid" : "diff-easy";
+
+  elements.caseCard.innerHTML = `
+    <div class="case-card-content">
+      <div class="case-difficulty ${dc}">${d}</div>
+      <p class="case-complaint">"${escapeHtml(state.activeCase.chief_complaint || "Patient loaded")}"</p>
+      <p class="case-hint">Ask questions, examine, order tests, then submit your diagnosis.</p>
+    </div>
+  `;
+}
+
+function updateProgressDots(revealed) {
+  elements.dotHistory.classList.toggle("revealed", !!revealed.history);
+  elements.dotExam.classList.toggle("revealed", !!revealed.exam);
+  elements.dotLabs.classList.toggle("revealed", !!revealed.labs);
+}
+
+// ── Differential builder ──
+
+function addDifferentialHypothesis() {
+  const text = elements.diffInput.value.trim();
+  if (!text) return;
+  doctorDifferential.push(text);
+  elements.diffInput.value = "";
+  renderDifferentialList();
+}
+
+function renderDifferentialList() {
+  elements.diffList.innerHTML = doctorDifferential
+    .map((h, i) => `<div class="diff-item" data-index="${i}">
+      <span class="diff-text">${escapeHtml(h)}</span>
+      <button class="diff-remove" onclick="removeDiff(${i})">x</button>
+    </div>`)
+    .join("");
+}
+
+// expose globally for inline onclick
+window.removeDiff = function(i) {
+  doctorDifferential.splice(i, 1);
+  renderDifferentialList();
+};
+
+async function checkDifferentialHypotheses() {
+  if (!doctorDifferential.length || !state.doctorSessionId) return;
+
+  elements.checkDiffBtn.disabled = true;
+  elements.checkDiffBtn.textContent = "Checking...";
+
+  try {
+    const resp = await fetch(API.doctorDiff, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: state.doctorSessionId, hypotheses: doctorDifferential }),
+    });
+
+    if (!resp.ok) throw new Error("Check failed");
+    const data = await resp.json();
+
+    elements.diffList.innerHTML = (data.results || [])
+      .map((r) => {
+        const cls = r.match_level === "correct" ? "diff-correct"
+                  : r.match_level === "plausible" ? "diff-plausible" : "diff-unlikely";
+        return `<div class="diff-item ${cls}"><span class="diff-text">${escapeHtml(r.hypothesis)}</span><span class="diff-badge">${r.match_level}</span></div>`;
+      })
+      .join("");
+  } catch {
+    // silent
+  } finally {
+    elements.checkDiffBtn.disabled = false;
+    elements.checkDiffBtn.textContent = "Check Differential";
+  }
+}
+
+// ── Quiz ──
+
+async function loadQuiz() {
+  if (!state.doctorSessionId) return;
+
+  elements.loadQuizBtn.disabled = true;
+  elements.loadQuizBtn.textContent = "Generating...";
+  elements.quizContainer.innerHTML = "";
+
+  try {
+    const resp = await fetch(API.doctorQuiz, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: state.doctorSessionId }),
+    });
+
+    if (!resp.ok) throw new Error("Quiz failed");
+    const data = await resp.json();
+
+    elements.quizContainer.innerHTML = (data.questions || [])
+      .map((q, qi) => `
+        <div class="quiz-question" data-qi="${qi}" data-answer="${q.answer_index}">
+          <p class="quiz-stem">${escapeHtml(q.stem)}</p>
+          <div class="quiz-options">
+            ${q.options.map((opt, oi) => `
+              <button class="quiz-option" data-oi="${oi}" onclick="selectQuizOption(${qi}, ${oi})">
+                ${escapeHtml(opt)}
+              </button>
+            `).join("")}
+          </div>
+          <p class="quiz-explanation hidden">${escapeHtml(q.explanation || "")}</p>
+        </div>
+      `)
+      .join("");
+  } catch {
+    elements.quizContainer.innerHTML = `<p class="tab-desc" style="color:var(--danger)">Failed to generate quiz.</p>`;
+  } finally {
+    elements.loadQuizBtn.disabled = false;
+    elements.loadQuizBtn.textContent = "Generate Quiz";
+  }
+}
+
+window.selectQuizOption = function(qi, oi) {
+  const qEl = document.querySelector(`.quiz-question[data-qi="${qi}"]`);
+  if (!qEl || qEl.classList.contains("answered")) return;
+
+  qEl.classList.add("answered");
+  const correct = parseInt(qEl.dataset.answer);
+
+  qEl.querySelectorAll(".quiz-option").forEach((btn) => {
+    const idx = parseInt(btn.dataset.oi);
+    btn.disabled = true;
+    if (idx === correct) btn.classList.add("quiz-correct");
+    if (idx === oi && idx !== correct) btn.classList.add("quiz-wrong");
+  });
+
+  const expl = qEl.querySelector(".quiz-explanation");
+  if (expl) expl.classList.remove("hidden");
+};
+
+// ── Evaluation card (Phase E) ──
+
+function renderEvaluationCard(ev) {
+  const correct = ev.diagnosis_correct;
+  const grade = ev.overall_grade || (correct ? "A" : "D");
+  const gradeColor = { A: "#155724", B: "#155724", C: "#856404", D: "#721c24", F: "#721c24" }[grade] || "#333";
+
+  const identifiedHtml = (ev.key_findings_identified || []).map((f) => `<li>${escapeHtml(f)}</li>`).join("");
+  const missedHtml = (ev.missed_findings || []).map((f) => `<li>${escapeHtml(f)}</li>`).join("");
+  const diffHtml = (ev.differential || []).map((d) => `<li>${escapeHtml(d)}</li>`).join("");
+
+  elements.evaluationCard.innerHTML = `
+    <div class="eval-header ${correct ? 'eval-correct' : 'eval-incorrect'}">
+      <span class="eval-grade" style="color:${gradeColor}">${grade}</span>
+      <span>${correct ? "Correct diagnosis!" : "Not quite."}</span>
+    </div>
+    <div class="eval-body">
+      <p><strong>Correct diagnosis:</strong> ${escapeHtml(ev.correct_diagnosis || "")}</p>
+
+      ${ev.reasoning_quality ? `<div class="eval-scores">
+        <div class="eval-score-item"><span>Reasoning</span><span>${"*".repeat(ev.reasoning_quality)}${"·".repeat(5 - ev.reasoning_quality)}</span></div>
+        <div class="eval-score-item"><span>Efficiency</span><span>${"*".repeat(ev.efficiency_score || 3)}${"·".repeat(5 - (ev.efficiency_score || 3))}</span></div>
+        ${ev.premature_closure ? '<div class="eval-warn">Premature closure detected</div>' : ''}
+      </div>` : ''}
+
+      ${ev.strengths ? `<p><strong>Strengths:</strong> ${escapeHtml(ev.strengths)}</p>` : ''}
+      ${ev.improvements ? `<p><strong>To improve:</strong> ${escapeHtml(ev.improvements)}</p>` : ''}
+
+      ${identifiedHtml ? `<p><strong>Findings you identified:</strong></p><ul class="teaching-list">${identifiedHtml}</ul>` : ''}
+      ${missedHtml ? `<p><strong>Findings you missed:</strong></p><ul class="teaching-list">${missedHtml}</ul>` : ''}
+      ${diffHtml ? `<p><strong>Full differential:</strong></p><ul class="teaching-list">${diffHtml}</ul>` : ''}
+    </div>
+  `;
 }
 
 async function handlePreMedicalSubmit() {
