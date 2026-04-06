@@ -2,7 +2,7 @@ import json
 import pandas as pd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-MSD_CSV = "data_collection/msd_articles.csv"
+MSD_CSV = "data_collection/sources/msd/msd_articles.csv"
 PDF_CHUNKS_JSON = "data_collection/processed/clean_chunks.json"
 
 OUT_KB_JSON = "data_collection/knowledge_base.json"

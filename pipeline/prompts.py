@@ -58,7 +58,7 @@ Current form: {current_form}
 Return ONLY the fields that should be updated, one per line, in this format:
 field_name: value
 
-Valid fields: chief_complaint, symptoms, medications, allergies, conditions, family_history, lifestyle
+Valid fields: chief_complaint, demographics, emergency_contact, history, family_history, lifestyle, activity, medications, objectives
 Only return fields that have new information. Be concise."""
 
 

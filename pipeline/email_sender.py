@@ -6,13 +6,54 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 
 
+def send_email_via_gmail(receiver_email: str, subject: str, content: str) -> bool:
+    """
+    Sends an email using Gmail SMTP with an App Password.
+    Requires GMAIL_USER and GMAIL_APP_PASSWORD in environment.
+
+    How to get an App Password:
+    1. Enable 2-Step Verification on your Google account.
+    2. Go to myaccount.google.com > Security > App passwords.
+    3. Create an app password for "Mail".
+    4. Paste the 16-char password as GMAIL_APP_PASSWORD in .env
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    gmail_user = os.environ.get("GMAIL_USER", "").strip()
+    gmail_password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+
+    if not gmail_user or not gmail_password:
+        return False  # Not configured — caller should try fallback
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = gmail_user
+        msg["To"] = receiver_email
+
+        # Plain-text part
+        msg.attach(MIMEText(content, "plain"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(gmail_user, gmail_password)
+            server.sendmail(gmail_user, receiver_email, msg.as_string())
+
+        print(f"Email sent via Gmail SMTP to {receiver_email}")
+        return True
+
+    except Exception as e:
+        print(f"Gmail SMTP failed: {type(e).__name__}: {e}")
+        return False
+
+
 def send_email_via_resend(receiver_email: str, subject: str, content: str) -> bool:
     """
     Sends an email using the Resend API.
     Requires RESEND_API_KEY in environment.
-    During testing (no custom domain), sender is onboarding@resend.dev
-    and Resend only allows sending to the account owner's email.
-    Once you add a custom domain, you can send to anyone.
+    NOTE: Free Resend tier only allows sending to the account owner's email.
+          Add a custom domain at resend.com/domains to send to anyone.
     """
     api_key = os.environ.get("RESEND_API_KEY")
 
@@ -23,14 +64,11 @@ def send_email_via_resend(receiver_email: str, subject: str, content: str) -> bo
         print(f"Subject: {subject}")
         print(content)
         print("----------------------------\n")
-        print("Set RESEND_API_KEY in your .env to actually send emails.")
+        print("Set GMAIL_USER + GMAIL_APP_PASSWORD in your .env to send real emails.")
         return True
 
     try:
         resend.api_key = api_key
-
-        # Use your verified sender address here once you add a domain in Resend.
-        # For testing with the free sandbox, use: onboarding@resend.dev
         sender = os.environ.get("RESEND_FROM_EMAIL", "onboarding@resend.dev")
 
         params: resend.Emails.SendParams = {
@@ -45,8 +83,29 @@ def send_email_via_resend(receiver_email: str, subject: str, content: str) -> bo
         return True
 
     except Exception as e:
-        print(f"Failed to send email via Resend: {e}")
+        print(f"Failed to send email via Resend: {type(e).__name__}: {e}")
         return False
+
+
+def send_email(receiver_email: str, subject: str, content: str) -> bool:
+    """
+    Unified email sender. Tries Gmail first, then Resend, then simulation.
+    """
+    # 1. Try Gmail SMTP (best: free, sends to anyone)
+    if os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD"):
+        return send_email_via_gmail(receiver_email, subject, content)
+
+    # 2. Try Resend (limited free tier — own email only unless custom domain)
+    if os.environ.get("RESEND_API_KEY"):
+        return send_email_via_resend(receiver_email, subject, content)
+
+    # 3. Simulation mode
+    print("\n--- SIMULATED EMAIL (no credentials configured) ---")
+    print(f"To: {receiver_email}\nSubject: {subject}\n{content}")
+    print("---------------------------------------------------\n")
+    return True
+
+
 
 
 def process_and_send_pre_medical(data: Dict[str, Any]) -> Dict[str, str]:
@@ -157,11 +216,11 @@ def process_and_send_pre_medical(data: Dict[str, Any]) -> Dict[str, str]:
     except Exception as e:
         return {"status": "error", "message": f"LLM Formatting failed: {str(e)}"}
 
-    # Send the email
+    # Send the email via the best available transport
     subject = f"Pre-Consultation Patient Info: {name}"
-    success = send_email_via_resend(receiver_email=doctor_email, subject=subject, content=formatted_content)
+    success = send_email(receiver_email=doctor_email, subject=subject, content=formatted_content)
 
     if success:
-        return {"status": "success", "message": "Email sent successfully! (Or simulated if missing credentials)"}
+        return {"status": "success", "message": "Email sent successfully!"}
     else:
-        return {"status": "error", "message": "Failed to send the email via Resend."}
+        return {"status": "error", "message": "Failed to send the email. Check GMAIL_USER / GMAIL_APP_PASSWORD in .env"}

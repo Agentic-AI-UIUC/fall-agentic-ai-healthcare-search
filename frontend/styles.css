@@ -16,6 +16,8 @@
   --bubble-user: linear-gradient(135deg, #3b8fd4, #5ba3de);
   --bubble-assistant: rgba(255, 255, 255, 0.92);
   --danger: #c0392b;
+  --success: #27ae60;
+  --surface: rgba(255, 255, 255, 0.92);
   --shadow: 0 2px 20px rgba(0, 40, 80, 0.06);
   --shadow-lg: 0 8px 40px rgba(0, 40, 80, 0.08);
   --radius-xl: 24px;
@@ -405,6 +407,55 @@ button {
 
 .intake-continue-btn {
   font-size: 0.95rem;
+}
+
+.intake-email-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.intake-email-row input[type="email"] {
+  flex: 1;
+  min-width: 180px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.92rem;
+  background: var(--bg-soft);
+  color: var(--text);
+  outline: none;
+}
+
+.intake-email-row input[type="email"]:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(59, 143, 212, 0.1);
+}
+
+.intake-email-row .send-email-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+  color: white;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  white-space: nowrap;
+}
+
+.intake-email-row .send-email-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(59,143,212,0.3);
+}
+
+.intake-email-row .send-email-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
 }
 
 .intake-composer {
