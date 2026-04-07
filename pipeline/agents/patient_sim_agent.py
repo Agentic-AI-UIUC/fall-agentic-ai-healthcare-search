@@ -10,10 +10,13 @@ Same data source as the patient-facing RAG pipeline — different behavior.
 """
 
 import json
+import logging
 import os
 import random
 
 from pipeline.retriever import retrieve_chunks
+
+logger = logging.getLogger(__name__)
 
 # ── Seed queries for case variety ─────────────────────────────────────
 SEED_QUERIES = [
@@ -42,11 +45,13 @@ MODEL = "llama-3.3-70b-versatile"
 def _get_client():
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
+        logger.error("GROQ_API_KEY is not set. Check your .env file.")
         return None
     try:
         from groq import Groq
         return Groq(api_key=api_key)
     except ImportError:
+        logger.error("groq package is not installed. Run: pip install groq")
         return None
 
 
@@ -66,7 +71,8 @@ def _llm_call(system: str, user: str, temperature=0.7, max_tokens=400) -> str | 
             max_tokens=max_tokens,
         )
         return resp.choices[0].message.content.strip()
-    except Exception:
+    except Exception as e:
+        logger.error("Groq LLM call failed: %s", e)
         return None
 
 
@@ -101,7 +107,8 @@ def generate_case_from_chunks(seed_query: str | None = None) -> dict:
     query = seed_query or random.choice(SEED_QUERIES)
     try:
         chunks = retrieve_chunks(query, top_k=4)
-    except Exception:
+    except Exception as e:
+        logger.error("Failed to retrieve chunks for case generation: %s", e)
         chunks = []
 
     if not chunks:
@@ -138,6 +145,7 @@ def generate_case_from_chunks(seed_query: str | None = None) -> dict:
 
 
 def _fallback_case() -> dict:
+    logger.warning("Using fallback case — Groq API or Qdrant unavailable.")
     return {
         "chief_complaint": "I've had this headache for three days and I feel really nauseous.",
         "background": "34-year-old female teacher, no significant past medical history, no medications, NKDA. Works long hours under fluorescent lights.",
@@ -259,9 +267,22 @@ def _generate_patient_response(case, messages, action_type, doctor_query):
 def _fallback_patient_response(case, action_type):
     chief = case.get("chief_complaint", "I haven't been feeling well")
     if action_type == "order_exam":
+        findings = case.get("exam_findings", "")
+        if findings:
+            return f"Okay, go ahead doctor. Here's what you find: {findings}"
         return "Okay, go ahead doctor. I'll try to stay still."
     if action_type == "order_labs":
+        labs = case.get("lab_results", "")
+        if labs:
+            return f"Sure. The results come back: {labs}"
         return "Sure, whatever you think is needed. Should I wait here?"
+    if action_type == "ask_history":
+        background = case.get("background", "")
+        symptoms = case.get("symptom_details", "")
+        if background or symptoms:
+            details = background if background else symptoms
+            return f"Well, let me think... {details}"
+        return f"Well, {chief} That's the main thing bothering me."
     return f"Well, {chief} That's the main thing bothering me."
 
 
