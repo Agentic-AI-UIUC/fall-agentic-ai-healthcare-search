@@ -15,41 +15,65 @@ EMERGENCY_KEYWORDS = [
     "overdose", "severe bleeding", "coughing blood", "facial drooping",
 ]
 
-STEPS = ["greeting", "symptoms", "history", "lifestyle", "summary"]
+STEPS = [
+    "greeting", "demographics", "emergency_contact", "history", "family_history", 
+    "lifestyle", "activity", "medications", "objectives", "summary"
+]
 
 STEP_LABELS = {
     "greeting": "Chief Complaint",
-    "symptoms": "Symptom Details",
+    "demographics": "Demographics & Info",
+    "emergency_contact": "Emergency & Physician",
     "history": "Medical History",
-    "lifestyle": "Lifestyle",
+    "family_history": "Family History",
+    "lifestyle": "Lifestyle & Habits",
+    "activity": "Activity & Physical",
+    "medications": "Medications",
+    "objectives": "Objectives",
     "summary": "Review & Confirm",
 }
 
 SCRIPTED_QUESTIONS = {
-    "greeting": (
-        "Hi! I'll help you create your intake form. "
-        "Let's start — what's the main reason for your visit today?"
-    ),
-    "symptoms": (
-        "Thanks for sharing that. Let me get a few more details:\n\n"
-        "- When did this start?\n"
-        "- On a scale of 1-10, how severe is it?\n"
-        "- Is it constant or does it come and go?\n"
-        "- What makes it better or worse?"
-    ),
-    "history": (
-        "That's helpful. Now a few questions about your medical background:\n\n"
-        "- Are you currently taking any medications?\n"
-        "- Do you have any known allergies?\n"
-        "- Any pre-existing conditions or past surgeries?\n"
-        "- Any relevant family medical history?"
-    ),
-    "lifestyle": (
-        "Almost done! A couple of lifestyle questions:\n\n"
-        "- Do you smoke or drink alcohol?\n"
-        "- How often do you exercise?\n"
-        "- Any recent travel?"
-    ),
+    "greeting": {
+        "text": "Hi! I'll help you create your intake form. Let's start — what's the main reason for your visit today?",
+        "options": ["General Checkup", "Pain/Discomfort", "Follow-up", "Medication Refill", "Other (Please type)"]
+    },
+    "demographics": {
+        "text": "Hi! Let's get your medical file started. Could you provide your full name, date of birth, and any insurance provider details?",
+        "options": []
+    },
+    "emergency_contact": {
+        "text": "Thanks. Who should we contact in case of an emergency (name/phone), and who is your primary care physician?",
+        "options": []
+    },
+    "history": {
+        "text": "Do you have any past or present medical conditions? Please select from the common ones below, or type any others.",
+        "options": ["None", "High blood pressure", "Heart problems", "Diabetes / High cholesterol", "Lung issues / Asthma", "Recent operations", "Other (Please type)"]
+    },
+    "family_history": {
+        "text": "Do any of your first-degree relatives (parents, siblings, children) have a history of major conditions?",
+        "options": ["None", "Heart disease / attack", "High blood pressure", "Diabetes", "Other (Please type)"]
+    },
+    "lifestyle": {
+        "text": "Do you currently smoke or use tobacco? How would you describe your nutritional habits and weight trends over the past year?",
+        "options": ["Don't smoke, healthy diet", "Don't smoke, average diet", "Smoke, healthy diet", "Smoke, average/poor diet", "Other"]
+    },
+    "activity": {
+        "text": "Do you exercise regularly? Can you walk 4 miles briskly without fatigue, and are there any bone/muscle injuries that interfere?",
+        "options": ["Yes, exercise regularly", "No regular exercise", "Have physical injuries/limitations", "Other"]
+    },
+    "medications": {
+        "text": "Are you currently taking any prescription medications or over-the-counter supplements?",
+        "options": ["None", "Vitamins / Supplements only", "Yes (Please list)"]
+    },
+    "objectives": {
+        "text": "Finally, what are your primary personal health and fitness objectives for this program?",
+        "options": ["Improve general fitness", "Lose weight", "Manage medical condition", "Recover from injury", "Other"]
+    },
+    "summary": {
+        "text": "Thank you. Please review your summary. Does everything look correct?",
+        "options": ["Looks good", "I need to change something"]
+    }
 }
 
 
@@ -74,12 +98,14 @@ def get_step_number(step: str) -> int:
 def make_empty_form() -> dict:
     return {
         "chief_complaint": "",
-        "symptoms": "",
-        "medications": "",
-        "allergies": "",
-        "conditions": "",
+        "demographics": "",
+        "emergency_contact": "",
+        "history": "",
         "family_history": "",
         "lifestyle": "",
+        "activity": "",
+        "medications": "",
+        "objectives": "",
         "emergency_flag": False,
         "timestamp": "",
     }
@@ -89,15 +115,17 @@ def build_summary(form: dict) -> str:
     """Build a readable summary of the intake form."""
     lines = [
         "Here's a summary of your intake form:\n",
-        f"**Chief complaint:** {form.get('chief_complaint', 'Not provided')}",
-        f"**Symptom details:** {form.get('symptoms', 'Not provided')}",
-        f"**Medications:** {form.get('medications', 'Not provided')}",
-        f"**Allergies:** {form.get('allergies', 'Not provided')}",
-        f"**Conditions/surgeries:** {form.get('conditions', 'Not provided')}",
-        f"**Family history:** {form.get('family_history', 'Not provided')}",
+        f"**Reason for Visit:** {form.get('chief_complaint', 'Not provided')}",
+        f"**Demographics:** {form.get('demographics', 'Not provided')}",
+        f"**Emergency / Physician:** {form.get('emergency_contact', 'Not provided')}",
+        f"**Past Medical History:** {form.get('history', 'Not provided')}",
+        f"**Family History:** {form.get('family_history', 'Not provided')}",
         f"**Lifestyle:** {form.get('lifestyle', 'Not provided')}",
-        "\nDoes everything look correct? Type **yes** to finalize, "
-        "or tell me what you'd like to change.",
+        f"**Activity / Physical:** {form.get('activity', 'Not provided')}",
+        f"**Medications:** {form.get('medications', 'Not provided')}",
+        f"**Objectives:** {form.get('objectives', 'Not provided')}",
+        "\nDoes everything look correct? Click \"Looks good\" to finalize, "
+        "or click \"I need to change something\".",
     ]
     return "\n".join(lines)
 
@@ -174,7 +202,9 @@ def run_intake_step(
 
     # ── Opening turn (no user message yet) ──
     if user_message is None:
-        greeting = SCRIPTED_QUESTIONS["greeting"]
+        greeting_data = SCRIPTED_QUESTIONS["greeting"]
+        greeting = greeting_data["text"]
+        options = greeting_data.get("options", [])
         messages.append({"role": "assistant", "text": greeting})
         return {
             **session,
@@ -187,6 +217,7 @@ def run_intake_step(
             "total_steps": len(STEPS),
             "step_label": STEP_LABELS["greeting"],
             "response": greeting,
+            "options": options,
         }
 
     # ── Record user message ──
@@ -216,29 +247,12 @@ def run_intake_step(
         }
 
     # ── Extract data from user response based on current step ──
-    if step == "greeting":
-        form["chief_complaint"] = user_message
-        # Try LLM extraction for richer data
-        llm_updates = _extract_with_llm("greeting", user_message, form)
-        form.update(llm_updates)
-
-    elif step == "symptoms":
-        form["symptoms"] = user_message
-        llm_updates = _extract_with_llm("symptoms", user_message, form)
-        form.update(llm_updates)
-
-    elif step == "history":
-        # Parse the multi-part response
-        form["medications"] = user_message
-        form["conditions"] = user_message
-        llm_updates = _extract_with_llm("history", user_message, form)
+    if step in ["greeting", "demographics", "emergency_contact", "history", "family_history", "lifestyle", "activity", "medications", "objectives"]:
+        key = "chief_complaint" if step == "greeting" else step
+        form[key] = user_message
+        llm_updates = _extract_with_llm(step, user_message, form)
         if llm_updates:
             form.update(llm_updates)
-
-    elif step == "lifestyle":
-        form["lifestyle"] = user_message
-        llm_updates = _extract_with_llm("lifestyle", user_message, form)
-        form.update(llm_updates)
 
     elif step == "summary":
         # User is confirming or requesting changes
@@ -264,30 +278,25 @@ def run_intake_step(
                 "response": done_msg,
             }
         else:
-            # User wants to change something — stay on summary
+            # User wants to change something — start over
             change_msg = (
-                "No problem! Please tell me what you'd like to update, "
-                "and I'll adjust the form."
+                "No problem! Let's start over so you can provide the correct details. "
+                + SCRIPTED_QUESTIONS["greeting"]["text"]
             )
-            # Try LLM to handle the correction
-            llm_updates = _extract_with_llm("correction", user_message, form)
-            if llm_updates:
-                form.update(llm_updates)
-                summary = build_summary(form)
-                change_msg = f"I've updated the form. {summary}"
-
+            form = make_empty_form()
             messages.append({"role": "assistant", "text": change_msg})
             return {
                 **session,
-                "step": "summary",
+                "step": "greeting",
                 "form": form,
                 "messages": messages,
                 "complete": False,
-                "emergency": form.get("emergency_flag", False),
-                "step_number": get_step_number("summary"),
+                "emergency": False,
+                "step_number": get_step_number("greeting"),
                 "total_steps": len(STEPS),
-                "step_label": STEP_LABELS["summary"],
+                "step_label": STEP_LABELS["greeting"],
                 "response": change_msg,
+                "options": SCRIPTED_QUESTIONS["greeting"]["options"],
             }
 
     # ── Advance to next step ──
@@ -303,11 +312,11 @@ def run_intake_step(
     # ── Generate the next question ──
     if next_step == "summary":
         response = build_summary(form)
+        options = SCRIPTED_QUESTIONS["summary"]["options"]
     else:
-        # Try LLM-generated follow-up first, fall back to scripted
-        response = _generate_followup_with_llm(next_step, user_message, form)
-        if not response:
-            response = SCRIPTED_QUESTIONS.get(next_step, "Please continue.")
+        q_data = SCRIPTED_QUESTIONS.get(next_step, {})
+        response = q_data.get("text", "Please continue.")
+        options = q_data.get("options", [])
 
     messages.append({"role": "assistant", "text": response})
 
@@ -322,4 +331,5 @@ def run_intake_step(
         "total_steps": len(STEPS),
         "step_label": STEP_LABELS.get(next_step, next_step),
         "response": response,
+        "options": options,
     }

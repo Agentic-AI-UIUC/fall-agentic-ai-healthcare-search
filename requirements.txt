@@ -9,3 +9,4 @@ llama-cpp-python
 pypdf
 pandas
 python-dotenv
+fpdf2

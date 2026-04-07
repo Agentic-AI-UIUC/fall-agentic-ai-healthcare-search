@@ -5,37 +5,7 @@ const API = {
   chat: "/api/chat",
   upload: "/api/upload",
   preMedical: "/api/pre_medical",
-};
-
-const elements = {
-  conversationList: document.getElementById("conversationList"),
-  chatMessages: document.getElementById("chatMessages"),
-  chatTitle: document.getElementById("chatTitle"),
-  backendStatusText: document.getElementById("backendStatusText"),
-  composerStatus: document.getElementById("composerStatus"),
-  messageInput: document.getElementById("messageInput"),
-  sendBtn: document.getElementById("sendBtn"),
-  newChatBtn: document.getElementById("newChatBtn"),
-  clearMessagesBtn: document.getElementById("clearMessagesBtn"),
-  mentionUploadBtn: document.getElementById("mentionUploadBtn"),
-  toggleReviewBtn: document.getElementById("toggleReviewBtn"),
-  scrollBottomBtn: document.getElementById("scrollBottomBtn"),
-  fileInput: document.getElementById("fileInput"),
-  fileCard: document.getElementById("fileCard"),
-  suggestions: document.getElementById("suggestions"),
-  reviewPanel: document.getElementById("reviewPanel"),
-  
-  // Pre-Medical Modal
-  preMedicalBtn: document.getElementById("preMedicalBtn"),
-  preMedicalModal: document.getElementById("preMedicalModal"),
-  closeModalBtn: document.getElementById("closeModalBtn"),
-  preMedicalForm: document.getElementById("preMedicalForm"),
-  submitFormBtn: document.getElementById("submitFormBtn"),
-  formStatus: document.getElementById("formStatus"),
-  health: "http://localhost:5000/api/health",
-  chat: "http://localhost:5000/api/chat",
-  upload: "http://localhost:5000/api/upload",
-  intake: "http://localhost:5000/api/intake",
+  intake: "/api/intake",
 };
 
 let elements = {};
@@ -79,6 +49,14 @@ document.addEventListener("DOMContentLoaded", () => {
     suggestions: document.getElementById("suggestions"),
     reviewPanel: document.getElementById("reviewPanel"),
     uploadZone: document.getElementById("uploadZone"),
+
+    // Pre-Medical Modal
+    preMedicalBtn: document.getElementById("preMedicalBtn"),
+    preMedicalModal: document.getElementById("preMedicalModal"),
+    closeModalBtn: document.getElementById("closeModalBtn"),
+    preMedicalForm: document.getElementById("preMedicalForm"),
+    submitFormBtn: document.getElementById("submitFormBtn"),
+    formStatus: document.getElementById("formStatus"),
   };
 
   init();
@@ -127,7 +105,11 @@ function bindEvents() {
   elements.scrollBottomBtn.addEventListener("click", scrollMessagesToBottom);
 
   elements.preMedicalBtn.addEventListener("click", () => {
-    elements.preMedicalModal.classList.remove("hidden");
+    // Take user back to intake chat to restart conversational intake
+    state.hasEnteredApp = false;
+    saveState();
+    showLanding();
+    startIntake();
   });
   
   elements.closeModalBtn.addEventListener("click", () => {
@@ -242,7 +224,7 @@ async function startIntake() {
     state.intakeSessionId = data.intake_session_id;
     saveState();
 
-    appendIntakeMessage("assistant", data.response);
+    appendIntakeMessage("assistant", data.response, data.options);
     updateIntakeProgress(data.step_number, data.total_steps, data.step_label);
     elements.intakeStatus.textContent = "Ready";
     elements.intakeInput.focus();
@@ -293,7 +275,7 @@ async function handleIntakeSend() {
     if (data.emergency) {
       appendIntakeMessage("emergency", data.response);
     } else {
-      appendIntakeMessage("assistant", data.response);
+      appendIntakeMessage("assistant", data.response, data.options);
     }
 
     updateIntakeProgress(data.step_number, data.total_steps, data.step_label);
@@ -316,18 +298,93 @@ async function handleIntakeSend() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
-          Download Intake Form
+          Download PDF Summary
         `;
+
+        const emailAction = document.createElement("div");
+        emailAction.className = "intake-email-row";
+        
+        const emailInput = document.createElement("input");
+        emailInput.type = "email";
+        emailInput.placeholder = "doctor@clinic.com";
+        
+        const emailBtn = document.createElement("button");
+        emailBtn.className = "send-email-btn";
+        emailBtn.textContent = "Send via App";
+        emailBtn.addEventListener("click", async () => {
+            const docEmail = emailInput.value.trim();
+            if (!docEmail) { emailInput.focus(); return; }
+            emailBtn.textContent = "Sending...";
+            emailBtn.disabled = true;
+            try {
+                const res = await fetch(`/api/intake/${data.intake_session_id}/email`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ doctor_email: docEmail })
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    emailBtn.textContent = "✓ Sent!";
+                    emailBtn.style.background = "var(--success)";
+                } else {
+                    emailBtn.textContent = "Failed";
+                    emailBtn.style.background = "var(--danger)";
+                    emailBtn.disabled = false;
+                    const errMsg = result.error || "Email failed. Check server logs.";
+                    appendIntakeMessage("assistant", errMsg);
+                }
+            } catch {
+                emailBtn.textContent = "Error";
+                emailBtn.style.background = "var(--danger)";
+                emailBtn.disabled = false;
+            }
+        });
+        
+        const mailtoBtn = document.createElement("button");
+        mailtoBtn.className = "ghost-btn";
+        mailtoBtn.style = "margin-left: 10px; padding: 10px 15px; border-radius: 8px; cursor: pointer; border: 1px solid var(--border);";
+        mailtoBtn.textContent = "Open Email App";
+        mailtoBtn.title = "Send using your default email client (e.g. Outlook, Apple Mail)";
+        mailtoBtn.addEventListener("click", async () => {
+            const docEmail = emailInput.value.trim() || "doctor@clinic.com";
+            try {
+                const res = await fetch(`/api/intake/${data.intake_session_id}/json`);
+                if(res.ok) {
+                    const jsonRes = await res.json();
+                    const form = jsonRes.intake_form;
+                    let body = "PATIENT INTAKE SUMMARY\n";
+                    body += "======================\n\n";
+                    body += `Date: ${form.timestamp || 'N/A'}\n\n`;
+                    body += `Reason for Visit: ${form.chief_complaint || 'N/A'}\n`;
+                    body += `Demographics: ${form.demographics || 'N/A'}\n`;
+                    body += `Emergency/MD: ${form.emergency_contact || 'N/A'}\n`;
+                    body += `History: ${form.history || 'N/A'}\n`;
+                    body += `Family History: ${form.family_history || 'N/A'}\n`;
+                    body += `Lifestyle: ${form.lifestyle || 'N/A'}\n`;
+                    body += `Activity: ${form.activity || 'N/A'}\n`;
+                    body += `Medications: ${form.medications || 'N/A'}\n`;
+                    body += `Objectives: ${form.objectives || 'N/A'}\n`;
+                    window.location.href = `mailto:${docEmail}?subject=Patient Intake Summary&body=${encodeURIComponent(body)}`;
+                }
+            } catch (e) {
+                console.error("Failed to construct mailto", e);
+            }
+        });
+        
+        emailAction.appendChild(emailInput);
+        emailAction.appendChild(emailBtn);
+        emailAction.appendChild(mailtoBtn);
 
         const continueBtn = document.createElement("button");
         continueBtn.className = "landing-cta intake-continue-btn";
+        continueBtn.style.marginTop = "15px";
         continueBtn.textContent = "Continue to assistant";
         continueBtn.addEventListener("click", () => {
-          showMainApp();
-          elements.messageInput.focus();
+          skipToApp();
         });
 
         actions.appendChild(downloadBtn);
+        actions.appendChild(emailAction);
         actions.appendChild(continueBtn);
         elements.intakeMessages.appendChild(actions);
         scrollIntakeToBottom();
@@ -345,7 +402,7 @@ async function handleIntakeSend() {
   }
 }
 
-function appendIntakeMessage(role, text) {
+function appendIntakeMessage(role, text, options = []) {
   const el = document.createElement("div");
 
   if (role === "typing") {
@@ -368,8 +425,38 @@ function appendIntakeMessage(role, text) {
     const avatar = role === "user" ? "You" : "AI";
     el.innerHTML = `
       <div class="intake-avatar">${avatar}</div>
-      <div class="intake-bubble">${renderParagraphs(text)}</div>
+      <div class="intake-bubble">
+          ${renderParagraphs(text)}
+          <div class="options-mount"></div>
+      </div>
     `;
+    
+    if (options && options.length > 0) {
+      const mount = el.querySelector(".options-mount");
+      mount.className = "intake-options-container";
+      mount.style = "display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;";
+      options.forEach(opt => {
+          const btn = document.createElement("button");
+          btn.className = "ghost-btn";
+          btn.style = "padding: 6px 12px; font-size: 0.9rem; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--text); cursor: pointer;";
+          btn.textContent = opt;
+          btn.addEventListener("click", () => {
+              if (opt.toLowerCase().startsWith("other") || opt.toLowerCase() === "yes (please list)") {
+                  elements.intakeInput.value = "";
+                  elements.intakeInput.focus();
+                  elements.intakeInput.placeholder = "Please type your details...";
+                  return;
+              }
+              elements.intakeInput.value = opt;
+              handleIntakeSend();
+              mount.style.pointerEvents = "none";
+              mount.style.opacity = "0.6";
+          });
+          btn.onmouseover = () => btn.style.background = "var(--border-soft)";
+          btn.onmouseout = () => btn.style.background = "var(--surface)";
+          mount.appendChild(btn);
+      });
+    }
   }
 
   elements.intakeMessages.appendChild(el);
