@@ -18,6 +18,7 @@ class AgentState(TypedDict, total=False):
     generated_answer: str
     sources: list[dict]
     emergency_flag: bool
+    app_mode: str  # "patient" | "doctor" — informational, patient graph ignores doctor mode
 
 
 # ── Graph nodes ───────────────────────────────────────────────────────
@@ -174,3 +175,7 @@ def run_agent(
         "sources": result.get("sources", []),
         "emergency_flag": result.get("emergency_flag", False),
     }
+
+
+# Alias expected by app.py import
+run_pipeline = run_agent

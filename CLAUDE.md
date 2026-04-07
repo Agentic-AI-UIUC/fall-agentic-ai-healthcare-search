@@ -4,19 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RAG (Retrieval-Augmented Generation) pipeline for medical text search. Ingests medical documents (PDFs, MSD articles), chunks and embeds them, stores vectors in Qdrant, and retrieves relevant context to answer user queries via a Flask web app.
+Multi-agent healthcare system built on a RAG (Retrieval-Augmented Generation) pipeline. Ingests medical documents (PDFs, MSD articles), chunks and embeds them, stores vectors in Qdrant, and uses LangGraph + Groq LLM to answer user queries via a Flask web app. The system operates in two modes: **Patient Mode** (medical Q&A, intake forms, document analysis) and **Doctor Practice Mode** (simulated patient encounters for clinical training).
 
 ## Architecture
 
-The system has three layers connected in sequence:
+### Data Layer
 
 1. **Data collection & preprocessing** (`data_collection/scripts/`) — Scrapes MSD articles, extracts/cleans PDF text, chunks with LangChain `RecursiveCharacterTextSplitter` (3000 chars, 250 overlap), outputs to `data_collection/processed/`.
 
-2. **Vector DB ingestion** (`db/ingestion.py`) — Embeds chunks with `all-MiniLM-L6-v2` (sentence-transformers), upserts into Qdrant collection `medical_chunks` with cosine similarity. Batch size 100.
+2. **Vector DB ingestion** (`db/ingestion.py`) — Embeds chunks with BGE and PubMedBERT models (sentence-transformers), upserts into Qdrant collection `medical_chunks_hybrid_fast` with cosine similarity. Batch size 100.
 
-3. **Retrieval + serving** — `pipeline/retriever.py` embeds user queries with the same model and searches Qdrant for top-k chunks. `app.py` (Flask) serves the frontend and exposes `/api/chat`, `/api/upload`, `/api/health`. Currently uses a temporary answer builder (concatenates retrieved chunks) instead of a real LLM generator — `pipeline/generator.py` is a placeholder.
+### Agent Layer
 
-The frontend (`frontend/`) is vanilla HTML/JS/CSS. `app.js` manages chat state in localStorage, renders messages/sources, and calls the Flask API.
+3. **LangGraph orchestrator** (`pipeline/main.py`) — A `StateGraph` that routes patient-mode messages through: intent classification → retrieval → LLM generation → response formatting. Uses `AgentState` TypedDict for state. Doctor mode bypasses this graph entirely.
+
+4. **LLM generation** (`pipeline/generator.py`) — Uses Groq API (`llama-3.3-70b-versatile`) via `langchain-groq`. Formats retrieved chunks into context, applies a medical system prompt (plain language, source attribution, disclaimer, emergency detection), returns grounded answers.
+
+5. **Patient intake agent** (`pipeline/agents/intake_agent.py`) — Multi-step conversational intake that collects chief complaint, symptoms, medications, allergies, conditions, family history, and lifestyle. Runs emergency checks at every step. Outputs a structured JSON intake form.
+
+6. **Simulated patient agent** (`pipeline/agents/patient_sim_agent.py`) — Doctor Practice Mode agent. Dynamically generates patient cases from Qdrant medical chunks via Groq LLM. Role-plays as the patient, gates information behind doctor actions (history-taking, exam, labs), evaluates submitted diagnoses with multi-dimensional scoring, generates quizzes, and checks differential hypotheses.
+
+### Serving Layer
+
+7. **Flask backend** (`app.py`) — Serves the frontend, exposes all API routes. Uses in-memory dicts for session state (`uploaded_docs`, `intake_sessions`, `doctor_sessions`).
+
+8. **Frontend** (`frontend/`) — Vanilla HTML/JS/CSS. `app.js` manages chat state in localStorage, renders messages/sources, handles mode switching between patient and doctor modes.
 
 `archive/` contains legacy code — not active, kept for reference only.
 
@@ -41,526 +53,152 @@ python pipeline/retriever.py
 
 ## Key Configuration
 
-- Qdrant: `localhost:6333`, collection name `medical_chunks`
-- Embedding model: `all-MiniLM-L6-v2` (must be consistent between ingestion and retrieval)
+- Qdrant: `localhost:6333`, collection name `medical_chunks_hybrid_fast`
+- Embedding models: `BAAI/bge-small-en-v1.5` and PubMedBERT (must be consistent between ingestion and retrieval)
+- LLM: Groq API with `llama-3.3-70b-versatile` — requires `GROQ_API_KEY` in `.env`
 - Flask app: port 5000, serves static files from `frontend/`
 - Chunked data source: `data_collection/processed/clean_chunks.json`
 
 ## Dependencies
 
-No `requirements.txt` yet. Core packages: `flask`, `sentence-transformers`, `qdrant-client`, `langchain-text-splitters`, `pypdf`, `pandas`.
+Core packages: `flask`, `sentence-transformers`, `qdrant-client`, `langchain`, `langchain-groq`, `langgraph`, `langchain-text-splitters`, `groq`, `pypdf`, `pandas`, `python-dotenv`, `resend`.
 
-
-## TODO: Agentic Upgrade Plan — LangGraph / LangChain
-
-This plan transforms the current basic RAG pipeline into a multi-agent healthcare system using **LangGraph** for orchestration and **LangChain** for tool/chain composition. The goal is an intelligent assistant that can conduct patient intakes, answer medical questions with cited sources, explain uploaded documents, and help users find and schedule appointments with nearby providers.
-
-### Phase 1: LLM Integration & Core Agent Infrastructure
-
-**Goal:** Replace the placeholder `build_answer_from_chunks()` with a real LLM-powered generator and establish the agent framework.
-
-#### 1.1 — Install dependencies and create `requirements.txt`
-
+`.env` file (gitignored) must contain:
 ```
-flask
-sentence-transformers
-qdrant-client
-langchain
-langchain-community
-langchain-anthropic        # or langchain-openai
-langgraph
-langchain-text-splitters
-pypdf
-pandas
-python-dotenv
+GROQ_API_KEY=gsk_...
 ```
 
-Create a `.env` file (gitignored) for API keys:
-```
-ANTHROPIC_API_KEY=sk-...
-# or OPENAI_API_KEY=sk-...
-GOOGLE_MAPS_API_KEY=...          # Phase 4
-ZOCDOC_API_KEY=...               # Phase 4 (or scraping fallback)
-```
+## API Endpoints
 
-#### 1.2 — Implement `pipeline/generator.py` (LLM answer synthesis)
-
-This is the first file to fill in. It takes retrieved chunks + user query and produces a grounded, plain-language medical answer.
-
-**What to build:**
-- A LangChain `ChatPromptTemplate` with a medical system prompt that enforces:
-  - Plain-language explanations (8th-grade reading level)
-  - Source attribution ("According to [Source X]...")
-  - Disclaimer that this is not a substitute for professional advice
-  - Emergency detection: if symptoms suggest emergency (chest pain + shortness of breath, stroke symptoms, etc.), prepend a bold warning to call 911
-- A `generate_answer(query: str, chunks: list[dict], conversation_history: list[dict]) -> str` function
-- Use local model llama.cpp
-- Include conversation history for multi-turn context
-
-**Prompt template structure:**
-```
-System: You are a medical information assistant. You answer questions using ONLY
-the provided source context. Cite sources. Use plain language. If the user describes
-emergency symptoms, warn them immediately. Always end with a disclaimer.
-
-Context: {retrieved_chunks}
-Conversation history: {history}
-User question: {query}
-```
-
-**File:** `pipeline/generator.py`
-
-#### 1.3 — Implement `pipeline/main.py` (LangGraph orchestrator)
-
-This is the central state graph that routes user messages through the correct agent path.
-
-**State schema:**
-```python
-class AgentState(TypedDict):
-    messages: list                  # conversation history
-    user_query: str                 # current user input
-    intent: str                     # classified intent (intake, question, document, appointment, provider_search)
-    retrieved_chunks: list[dict]    # from Qdrant
-    generated_answer: str           # from generator
-    sources: list[dict]             # formatted source cards
-    intake_form: dict               # structured intake data (Phase 2)
-    user_location: dict             # lat/lng (Phase 4)
-    appointment_results: list       # found appointments (Phase 4)
-    provider_results: list          # found providers (Phase 4)
-    uploaded_document: dict         # document metadata + extracted text
-    emergency_flag: bool            # true if emergency symptoms detected
-```
-
-**Graph nodes (build incrementally across phases):**
-
-```
-              +------------------+
-              |  Intent Classifier|
-              +--------+---------+
-                       |
-         +-------------+-------------+-------------+
-         |             |             |             |
-    [intake]     [question]    [document]    [appointment]
-         |             |             |             |
-  Intake Agent   Retrieval     Doc Analysis   Appointment
-         |        + Generator       |          Finder
-         |             |             |             |
-         +-------------+-------------+-------------+
-                       |
-              +--------+---------+
-              | Response Formatter|
-              +------------------+
-```
-
-**File:** `pipeline/main.py`
-
-#### 1.4 — Wire into Flask (`app.py`)
-
-Update `/api/chat` to call the LangGraph orchestrator instead of the raw retriever + temp builder:
-
-```python
-# Replace:
-chunks = retrieve_chunks(augmented_query, top_k=5)
-answer = build_answer_from_chunks(user_message, chunks)
-sources = convert_chunks_to_sources(chunks)
-
-# With:
-from pipeline.main import run_agent
-result = run_agent(user_message, conversation_id, uploaded_document_id)
-answer = result["generated_answer"]
-sources = result["sources"]
-```
+| Method | Route | Mode | Purpose |
+|--------|-------|------|---------|
+| GET | `/api/health` | Both | Health check |
+| POST | `/api/chat` | Patient | Send message, get RAG-powered answer + sources |
+| POST | `/api/upload` | Patient | Upload medical document (PDF, TXT, DOCX, images) |
+| POST | `/api/intake` | Patient | Multi-turn patient intake conversation |
+| GET | `/api/intake/<id>/download` | Patient | Download completed intake form as text |
+| GET | `/api/intake/<id>/json` | Patient | Get completed intake form as JSON |
+| POST | `/api/pre_medical` | Patient | Process and email pre-medical form |
+| POST | `/api/doctor/session` | Doctor | Start new case (generates patient from Qdrant chunks) |
+| POST | `/api/doctor/chat` | Doctor | Send doctor message, get simulated patient response |
+| POST | `/api/doctor/quiz` | Doctor | Generate MCQs from active case |
+| POST | `/api/doctor/differential` | Doctor | Check differential hypotheses against case |
 
 ---
 
-### Phase 2: Patient Intake Agent
+## Dual-Mode Agent System — Implementation Reference
 
-**Goal:** The landing page "Begin Intake" flow becomes a structured, multi-turn conversation that collects patient information and builds an intake form.
+The system has two fully isolated operating modes sharing the same Flask backend and Qdrant data.
 
-#### 2.1 — Intake state machine (`pipeline/agents/intake_agent.py`)
+| | **Patient Mode** | **Doctor Practice Mode** |
+|---|---|---|
+| **User** | Patient seeking information | Doctor/trainee practicing diagnosis |
+| **Agent role** | Medical information assistant | Simulated patient with hidden diagnosis |
+| **Data source** | Qdrant `medical_chunks_hybrid_fast` | Same collection, but used to synthesize cases |
+| **Right panel** | Document upload & analysis | Case card, differential builder, quiz, evaluation |
+| **LLM calls** | LangGraph pipeline via `pipeline/main.py` | Direct Groq calls in `patient_sim_agent.py` |
 
-A LangGraph subgraph with its own state that guides the patient through intake:
+### Phase A: Mode Switching Infrastructure (implemented)
 
-**Intake flow (nodes in subgraph):**
-0. PATIENT INTAKE IS OPTIONAL: user should be able to choose whether they'd like to fill out a sharable patient intake form or go straight to the regular chat and document upload interface 
-1. **greeting** — "Hi! I'll help you create your intake form. Let's start with what's bringing you in today."
-2. **symptom_collection** — Ask about primary symptoms. Use the LLM to ask clarifying follow-ups:
-   - "When did this start?"
-   - "On a scale of 1-10, how severe?"
-   - "Is it constant or does it come and go?"
-   - "What makes it better or worse?"
-3. **history_collection** — Ask about:
-   - Current medications
-   - Known allergies
-   - Pre-existing conditions
-   - Recent surgeries or hospitalizations
-   - Family history of relevant conditions
-4. **lifestyle_collection** — Optional but useful:
-   - Smoking/alcohol/exercise
-   - Recent travel (if relevant to symptoms)
-5. **summary_and_confirm** — Present a structured summary of everything collected. Ask the user to confirm or correct anything.
-6. **emergency_check** — At every node, run an emergency classifier. If triggered, interrupt the flow with: "Based on what you've described, please seek immediate medical attention or call 911."
+**What it does:** Adds a toggle button in the frontend header that flips between patient and doctor modes. Applies a `body.doctor-mode` CSS class for palette shift, swaps the right panel (document upload vs. case/quiz panel), and clears the conversation on switch.
 
-**Output:** A structured `intake_form` dict:
+**Files edited:**
+- `frontend/index.html` — Added `#doctorModeToggle` button in `.chat-header-actions`, added full `<aside class="doctor-panel">` markup
+- `frontend/app.js` — Added `appMode` to state, `toggleDoctorMode()` and `applyMode()` functions, routes `handleSend()` to `handleDoctorSend()` when in doctor mode
+- `frontend/styles.css` — `.doctor-toggle-btn`, `.doctor-mode-active`, `body.doctor-mode` palette overrides, `.doctor-panel` layout
+- `pipeline/main.py` — Added `app_mode: str` field to `AgentState` TypedDict (informational only; doctor mode doesn't use the LangGraph graph)
+
+**Key decision:** Doctor mode does NOT route through the LangGraph `StateGraph`. It calls `run_patient_sim()` directly from `app.py`, keeping the existing patient pipeline untouched.
+
+### Phase B + F: Dynamic Case Generation (implemented, merged)
+
+**What it does:** Instead of static case JSON files, cases are generated dynamically each session. `generate_case_from_chunks()` picks a random seed query (e.g., "chest pain shortness of breath cardiac"), retrieves top medical chunks from Qdrant, and sends them to Groq LLM with a prompt to synthesize a realistic clinical case with hidden diagnosis. Falls back to a hardcoded migraine case if Qdrant or Groq is unavailable.
+
+**Files created:**
+- `pipeline/agents/patient_sim_agent.py` — Contains `SEED_QUERIES` list, `generate_case_from_chunks()`, `_llm_call()` helper, static fallback case
+
+**No new dependencies.** Uses existing `pipeline/retriever.py` for Qdrant access and `groq` package for LLM calls.
+
+**Case JSON structure produced:**
 ```python
 {
-    "chief_complaint": "persistent headaches for 2 weeks",
-    "symptoms": [
-        {"name": "headache", "severity": 8, "duration": "2 weeks", "frequency": "daily", "triggers": "stress, bright lights"}
-    ],
-    "medications": ["ibuprofen 400mg as needed"],
-    "allergies": ["penicillin"],
-    "conditions": ["migraine history"],
-    "family_history": ["mother: hypertension"],
-    "lifestyle": {"smoking": false, "exercise": "3x/week"},
-    "emergency_flag": false,
-    "timestamp": "2026-03-29T..."
+    "chief_complaint": "...",
+    "background": "...",
+    "symptom_details": "...",
+    "exam_findings": "...",
+    "lab_results": "...",
+    "diagnosis": "...",          # hidden from doctor
+    "key_findings": ["..."],     # hidden until evaluation
+    "differential": ["..."],     # hidden until evaluation
+    "difficulty": "beginner|intermediate|advanced"
 }
 ```
 
-#### 2.2 — New API endpoint
+### Phase C: Simulated Patient Agent (implemented)
 
-```
-POST /api/intake
-  Input:  {"message": str, "intake_session_id": str}
-  Output: {"response": str, "intake_complete": bool, "intake_form": dict | null, "emergency": bool}
-```
+**What it does:** The LLM role-plays as the generated patient. An action classifier (keyword-based) categorizes each doctor message into: `ask_history`, `order_exam`, `order_labs`, `submit_diagnosis`, or `request_hint`. The patient only reveals exam findings when the doctor explicitly examines, and lab results only when tests are ordered. Session state tracks `revealed` sections, `turns` count, and `tests_ordered`.
 
-When `intake_complete` is true, the frontend transitions to the main app and the intake form is stored server-side and made available as context for all future queries in that session.
+**Files created/edited:**
+- `pipeline/agents/patient_sim_agent.py` — `run_patient_sim(session, doctor_message)` function, `_classify_action()`, `new_session(case)` helper
+- `app.py` — Added `doctor_sessions = {}` in-memory store, `POST /api/doctor/session` and `POST /api/doctor/chat` endpoints
 
-#### 2.3 — Frontend updates
+**Information gating rules:**
 
-- Landing page chat: connect to `/api/intake` instead of `/api/chat`
-- Show progress indicator (step 1 of 5, step 2 of 5, etc.)
-- On completion, display the intake summary card and "Continue to assistant" button
-- Pass `intake_session_id` to main app so the intake context carries over
+| Doctor action | Keyword triggers | What gets revealed |
+|---|---|---|
+| Ask history | "history", "medications", "allergies" | `background` field |
+| Order exam | "examine", "vitals", "auscultate" | `exam_findings` field |
+| Order labs | "lab", "blood", "x-ray", "CBC", "imaging" | `lab_results` field |
+| Submit diagnosis | "diagnosis is", "I think this is", "my assessment" | Triggers evaluation |
+| Request hint | "hint", "clue", "help me" | Brief nudge from LLM |
 
----
+### Phase D: Doctor-Mode Right Panel UI (implemented)
 
-### Phase 3: Document Analysis Agent
+**What it does:** When in doctor mode, the right panel shows a case card with difficulty badge and chief complaint, progress dots (Hx/PE/Dx that light up as the doctor reveals information), and four tabs: Actions (quick-action chips + submit diagnosis), Differential (hypothesis builder with add/remove/check), Quiz (LLM-generated MCQs), and Results (evaluation card, locked until diagnosis submitted).
 
-**Goal:** When a user drops a medical document, the system extracts text, chunks it, and conducts an intelligent multi-part explanation.
+**Files edited:**
+- `frontend/index.html` — Full doctor panel markup: `#caseCard`, `#caseProgress` with `.progress-dot` spans, `.doctor-tabs` with four `.doctor-tab` buttons, four `.doctor-tab-content` divs (`#tabActions`, `#tabDifferential`, `#tabQuiz`, `#tabTeaching`)
+- `frontend/app.js` — `switchDoctorTab()`, `loadNewCase()`, `renderCaseCard()`, `updateProgressDots()`, `addDifferentialHypothesis()`, `renderDifferentialList()`, `checkDifferentialHypotheses()`, `loadQuiz()`, `selectQuizOption()`, `renderEvaluationCard()`
+- `frontend/styles.css` — All doctor panel element styles: `.doctor-tabs`, `.doctor-tab`, `.doctor-tab-content`, `.diff-input-row`, `.diff-item`, `.diff-correct/.diff-plausible/.diff-unlikely`, `.diff-badge`, `.quiz-question`, `.quiz-option`, `.quiz-correct/.quiz-wrong`, `.quiz-explanation`, `.case-progress`, `.progress-dot`, `.eval-scores`, `.eval-grade`, `.eval-warn`, `.tab-desc`
 
-#### 3.1 — Document processing (`pipeline/agents/document_agent.py`)
+**API endpoints added to `app.py`:**
+- `POST /api/doctor/quiz` — Calls `generate_quiz(case)` which asks LLM to produce 3 MCQs from the case data
+- `POST /api/doctor/differential` — Calls `check_differential(case, hypotheses)` which compares doctor's hypotheses against case diagnosis/differential via keyword matching
 
-**Processing pipeline:**
-1. **Extract text** — Use `pypdf` for PDFs, plain read for `.txt`, `python-docx` for `.docx`
-2. **Chunk the document** — Use `RecursiveCharacterTextSplitter` (same settings as ingestion: 3000 chars, 250 overlap)
-3. **Embed and store temporarily** — Either:
-   - Create a temporary Qdrant collection per document (deleted after session), or
-   - Store chunks in memory for the session
-4. **Generate structured explanation** — Use the LLM with a specialized document analysis prompt:
+### Phase E: Diagnosis Evaluation & Scoring (implemented)
 
-**Analysis sections (each is a node in the subgraph):**
-- **Overview** — What type of document is this? What's the main finding?
-- **Key findings** — List and explain each significant finding in plain language
-- **Medications** — Extract and explain any medications mentioned (dosage, purpose, side effects)
-- **Action items** — What does the patient need to do? Follow-up appointments, lifestyle changes, medication schedules
-- **Warning signs** — What should make the patient contact their doctor immediately?
-- **Questions to ask** — Suggest questions the patient should ask at their next visit
+**What it does:** When the doctor submits a diagnosis (via chat message or "Submit Diagnosis" button), `_evaluate_diagnosis()` runs. It first tries an LLM-judged evaluation (Groq) that scores reasoning quality (1-5), efficiency (1-5), premature closure detection, key findings identified vs. missed, and overall grade (A-F). Falls back to keyword matching if LLM is unavailable.
 
-**Output format:**
+**Files edited:**
+- `pipeline/agents/patient_sim_agent.py` — `_evaluate_diagnosis(session, submitted_diagnosis)` with `EVAL_PROMPT`, JSON parsing of LLM response, keyword-match fallback
+- `frontend/app.js` — `renderEvaluationCard(evaluation)` shows pass/fail banner, grade, star-based scores, strengths/improvements lists, identified/missed findings, full differential reveal
+- `frontend/styles.css` — `.evaluation-card`, `.eval-header`, `.eval-correct/.eval-incorrect`, `.eval-body`, `.eval-scores`, `.eval-score-item`, `.eval-warn`, `.eval-grade`
+
+**Evaluation output structure:**
 ```python
 {
-    "document_type": "lab_results",
-    "overview": "This is a blood panel from 2026-03-15...",
-    "findings": [...],
-    "medications": [...],
-    "action_items": [...],
-    "warning_signs": [...],
-    "suggested_questions": [...],
-    "full_text": "..."  # stored for follow-up chat queries
+    "diagnosis_correct": bool,
+    "correct_diagnosis": "...",
+    "overall_grade": "A" | "B" | "C" | "D" | "F",
+    "reasoning_quality": 1-5,
+    "efficiency_score": 1-5,
+    "premature_closure": bool,
+    "key_findings_identified": ["..."],
+    "missed_findings": ["..."],
+    "strengths": ["..."],
+    "improvements": ["..."],
+    "full_differential": ["..."]
 }
 ```
 
-#### 3.2 — Update `/api/upload` endpoint
-
-After file upload, trigger document processing pipeline. Return the structured analysis:
-
-```
-POST /api/upload
-  Input:  FormData with file
-  Output: {
-    "document_id": str,
-    "analysis": { overview, findings, medications, ... },
-    "summary": str
-  }
-```
-
-#### 3.3 — Conversational follow-up
-
-After initial analysis, the user can ask follow-up questions in the chat about their document. The document chunks are included as additional context alongside the Qdrant retrieval results.
-
 ---
 
-### Phase 4: Appointment & Provider Search Agents
+## Design Principles
 
-**Goal:** Use the intake form and user location to find nearby medical professionals and help schedule appointments.
-
-#### 4.1 — Location handling
-
-Add a new API endpoint and frontend prompt:
-```
-POST /api/location
-  Input:  {"zip_code": str} or {"lat": float, "lng": float}
-  Output: {"location": {"lat": float, "lng": float, "city": str, "state": str}}
-```
-
-Frontend: After intake or on demand, ask user for zip code or request browser geolocation.
-
-#### 4.2 — Provider search agent (`pipeline/agents/provider_agent.py`)
-
-**LangGraph tool-using agent** that searches for medical providers. This agent has access to these LangChain tools:
-
-**Tool 1: `search_providers`**
-- Uses Google Maps Places API (or similar) to search for medical professionals
-- Input: specialty (derived from symptoms), location, radius
-- Query examples: "cardiologist near 10001", "primary care physician near Brooklyn, NY"
-- Returns: list of providers with name, address, phone, rating, hours, distance
-
-**Tool 2: `filter_providers`**
-- Filters results by: insurance accepted (if known), rating threshold, distance, availability
-- Takes the raw provider list and applies user preferences
-
-**Tool 3: `get_provider_details`**
-- Gets detailed info about a specific provider: reviews, specialties, accepted insurance, next available appointment
-- Could use Google Places details API or scrape provider websites
-
-**Specialty mapping logic:**
-```python
-SYMPTOM_TO_SPECIALTY = {
-    "chest pain": ["cardiologist", "emergency medicine"],
-    "headache": ["neurologist", "primary care"],
-    "skin rash": ["dermatologist"],
-    "joint pain": ["rheumatologist", "orthopedist"],
-    "anxiety": ["psychiatrist", "psychologist"],
-    "cough": ["pulmonologist", "primary care"],
-    # ... comprehensive mapping
-}
-```
-
-Use the LLM to map complex symptom descriptions to specialties when the lookup table isn't sufficient.
-
-**Output:**
-```python
-{
-    "recommended_specialty": "neurologist",
-    "reasoning": "Based on your persistent headaches with visual disturbances...",
-    "providers": [
-        {
-            "name": "Dr. Sarah Chen",
-            "specialty": "Neurology",
-            "address": "123 Medical Ave, New York, NY 10001",
-            "phone": "(212) 555-0123",
-            "distance": "0.8 miles",
-            "rating": 4.7,
-            "next_available": "2026-04-02",
-            "accepts_insurance": ["Aetna", "Blue Cross", "United"]
-        },
-        ...
-    ]
-}
-```
-
-#### 4.3 — Appointment scheduling agent (`pipeline/agents/appointment_agent.py`)
-
-**LangGraph tool-using agent** for appointment booking:
-
-**Tool 1: `check_availability`**
-- Checks available time slots for a specific provider
-- Data sources: provider API integrations, or web scraping of booking pages
-- Returns: list of available date/time slots
-
-**Tool 2: `create_appointment_hold`**
-- Places a tentative hold on a time slot
-- Returns a confirmation link the user can click to finalize
-- NOTE: Full booking requires authentication — for MVP, generate a deep link to the provider's booking page with pre-filled info
-
-**Tool 3: `generate_booking_link`**
-- For providers with online booking (Zocdoc, Healthgrades, provider websites)
-- Generates a direct link with specialty, location, and date pre-filled
-- Example: `https://www.zocdoc.com/search?specialist=neurologist&location=10001`
-
-**Conversational flow:**
-```
-User: "Can you help me find a neurologist near me?"
-Agent: "Based on your intake, I'd recommend seeing a neurologist for your headaches.
-        I found 3 highly-rated neurologists within 5 miles:
-
-        1. Dr. Sarah Chen — 4.7 stars, 0.8 mi — Next available: Apr 2
-        2. Dr. Michael Park — 4.5 stars, 1.2 mi — Next available: Apr 5
-        3. Dr. Lisa Wong — 4.8 stars, 3.1 mi — Next available: Apr 8
-
-        Would you like to book with any of these? I can also filter by insurance."
-
-User: "I have Blue Cross. Show me Dr. Chen's availability."
-Agent: "Dr. Chen accepts Blue Cross. Here are her available slots this week:
-        - Wed Apr 2, 10:00 AM
-        - Wed Apr 2, 2:30 PM
-        - Fri Apr 4, 9:00 AM
-
-        [Book on Zocdoc] [Call office: (212) 555-0123]"
-```
-
-#### 4.4 — New API endpoints
-
-```
-POST /api/providers/search
-  Input:  {"specialty": str, "location": str | {"lat": float, "lng": float}, "radius_miles": int, "insurance": str?}
-  Output: {"providers": [...], "recommended_specialty": str, "reasoning": str}
-
-POST /api/providers/{id}/availability
-  Input:  {"date_range_start": str, "date_range_end": str}
-  Output: {"slots": [{"datetime": str, "duration_min": int}]}
-
-POST /api/appointments/book
-  Input:  {"provider_id": str, "slot": str, "patient_info": dict}
-  Output: {"booking_link": str, "confirmation": str}
-```
-
-#### 4.5 — Frontend updates
-
-- Add a "Find providers" button/tab in the main app
-- Provider search results displayed as cards with name, rating, distance, next available
-- Clicking a provider shows details + available slots
-- "Book appointment" opens external booking link or shows contact info
-- Map view (optional, using Leaflet.js or Google Maps embed) showing provider locations
-
----
-
-### Phase 5: Emergency Detection & Red Flags System
-
-**Goal:** A cross-cutting concern that monitors all user input for emergency symptoms and interrupts the normal flow when detected.
-
-#### 5.1 — Emergency classifier (`pipeline/agents/emergency_agent.py`)
-
-**Runs as a check node before every other node in the main graph.**
-
-**Two-layer detection:**
-1. **Keyword match** (fast, no LLM call): Check against a curated list of emergency phrases
-   - "can't breathe", "chest pain", "stroke", "seizure", "bleeding won't stop", "unconscious", "suicidal", "overdose"
-2. **LLM classifier** (if keyword match is ambiguous): Ask the LLM to classify severity on a 1-5 scale
-
-**Emergency response:**
-- Severity 5 (life-threatening): Bold red banner — "CALL 911 IMMEDIATELY" — stop all other processing
-- Severity 4 (urgent): "Please go to the nearest emergency room or urgent care"
-- Severity 3 (needs attention): "Please contact your doctor within 24 hours"
-- Severity 1-2: Continue normal flow
-
-**Reference:** `archive/src/redflags.py` has an earlier version of this logic to build on.
-
----
-
-### Phase 6: Conversation Memory & Context Management
-
-**Goal:** Move from client-only localStorage to server-side conversation state with LangGraph checkpointing.
-
-#### 6.1 — Server-side state store
-
-Options (pick one):
-- **SQLite** (simplest for dev): Store conversations, intake forms, user profiles
-- **PostgreSQL** (production): Full relational storage
-- **LangGraph MemorySaver / SqliteSaver**: Built-in checkpointing for agent state
-
-**Schema:**
-```sql
--- conversations
-id UUID PRIMARY KEY,
-created_at TIMESTAMP,
-title TEXT,
-intake_form JSONB,
-user_location JSONB
-
--- messages
-id UUID PRIMARY KEY,
-conversation_id UUID REFERENCES conversations,
-role TEXT,          -- user | assistant | system
-content TEXT,
-sources JSONB,
-created_at TIMESTAMP
-
--- documents
-id UUID PRIMARY KEY,
-conversation_id UUID REFERENCES conversations,
-filename TEXT,
-file_path TEXT,
-analysis JSONB,
-uploaded_at TIMESTAMP
-```
-
-#### 6.2 — LangGraph checkpointing
-
-Use `langgraph.checkpoint` to persist agent state between API calls:
-
-```python
-from langgraph.checkpoint.sqlite import SqliteSaver
-
-memory = SqliteSaver.from_conn_string("checkpoints.db")
-graph = graph_builder.compile(checkpointer=memory)
-
-# Each API call resumes from the last checkpoint:
-result = graph.invoke(input, config={"configurable": {"thread_id": conversation_id}})
-```
-
-This means the intake agent can pause between turns and resume exactly where it left off.
-
----
-
-### Implementation Order & File Map
-
-```
-Phase 1 (LLM + framework):
-  pipeline/generator.py          — LLM answer synthesis
-  pipeline/main.py               — LangGraph orchestrator + intent classifier
-  pipeline/tools/__init__.py     — Shared tool definitions
-  pipeline/prompts.py            — All prompt templates
-  .env                           — API keys
-  requirements.txt               — All dependencies
-
-Phase 2 (Intake agent):
-  pipeline/agents/__init__.py
-  pipeline/agents/intake_agent.py   — Multi-turn intake subgraph
-  app.py                            — Add /api/intake endpoint
-  frontend/app.js                   — Connect landing page to intake API
-
-Phase 3 (Document analysis):
-  pipeline/agents/document_agent.py — Document processing + explanation
-  pipeline/utils/text_extract.py    — PDF/DOCX/TXT extraction helpers
-  app.py                            — Update /api/upload to return analysis
-
-Phase 4 (Provider search + appointments):
-  pipeline/agents/provider_agent.py     — Provider search with Google Maps tools
-  pipeline/agents/appointment_agent.py  — Availability checking + booking links
-  pipeline/tools/maps_tools.py          — Google Maps API wrapper tools
-  pipeline/tools/booking_tools.py       — Booking/scheduling tool definitions
-  app.py                                — Add /api/providers/*, /api/appointments/*
-  frontend/app.js                       — Provider cards, map view, booking UI
-
-Phase 5 (Emergency detection):
-  pipeline/agents/emergency_agent.py — Keyword + LLM emergency classifier
-  pipeline/main.py                   — Wire emergency check into graph
-
-Phase 6 (Persistence):
-  pipeline/memory.py             — Conversation store + LangGraph checkpointing
-  app.py                         — Replace in-memory state with DB
-  db/schema.sql                  — Database schema
-```
-
-### External APIs & Services Required
-
-| Service | Purpose | Phase | Free Tier |
-|---------|---------|-------|-----------|
-| Anthropic Claude API (or OpenAI) | LLM for generation, classification, intake | 1+ | Pay-per-token |
-| Google Maps Places API | Provider search by location + specialty | 4 | $200/mo free credit |
-| Google Maps Geocoding API | Zip code to lat/lng conversion | 4 | Included in Maps credit |
-| Zocdoc / Healthgrades | Provider details, availability, booking links | 4 | Scraping or partnerships |
-| Qdrant | Vector similarity search (already set up) | All | Self-hosted (free) |
-
-### Key Design Principles
-
-1. **Every answer is source-grounded.** The LLM must cite which retrieved chunk(s) support each claim. No hallucinated medical advice.
-2. **Emergency detection is non-negotiable.** It runs on every user message, before any other processing. False positives are acceptable; false negatives are not.
-3. **The system is an information tool, not a doctor.** Every response includes a disclaimer. The intake form is for the user's convenience, not a diagnosis.
-4. **Graceful degradation.** If the LLM API is down, fall back to the current chunk-concatenation approach. If provider search fails, suggest the user search manually. Never show a blank error.
-5. **Privacy first.** Intake forms, health data, and uploaded documents are stored locally (SQLite) and never sent to third-party analytics. Only the LLM API sees the text, and only as needed for the current query.
-
+1. **Every answer is source-grounded.** The LLM cites retrieved chunks. No hallucinated medical advice.
+2. **Emergency detection is non-negotiable.** Runs on every user message in patient mode. False positives > false negatives.
+3. **The system is an information tool, not a doctor.** Every response includes a disclaimer.
+4. **Graceful degradation.** If Groq or Qdrant is unavailable, falls back to chunk concatenation (patient mode) or a static case (doctor mode). Never shows a blank error.
+5. **The two modes are fully isolated.** Doctor-mode state (`doctor_sessions`) never leaks into patient-mode state. Doctor mode bypasses LangGraph entirely.
+6. **Cases are dynamically generated.** No static case files — every session synthesizes a fresh case from the existing Qdrant medical corpus via LLM.
+7. **Scoring is formative, not punitive.** Feedback focuses on reasoning process. A wrong diagnosis with excellent reasoning scores better than a lucky guess.

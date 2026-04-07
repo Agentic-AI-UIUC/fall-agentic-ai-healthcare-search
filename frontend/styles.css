@@ -1380,3 +1380,500 @@ button {
     color: var(--success);
   }
 }
+
+/* ============================
+   DOCTOR PRACTICE MODE
+   ============================ */
+
+/* Mode toggle button */
+.doctor-toggle-btn {
+  border: 1px solid var(--border-soft);
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.doctor-toggle-btn.doctor-mode-active {
+  background: #1e4d75;
+  color: #fff;
+  border-color: #1e4d75;
+}
+
+/* Body-level palette shift when in doctor mode */
+body.doctor-mode {
+  --blue: #2d6a9f;
+  --blue-deep: #1e4d75;
+  --blue-light: #e0ecf8;
+  --bubble-user: linear-gradient(135deg, #2d6a9f, #3a7bb5);
+}
+
+/* Doctor panel — mirrors .review-panel layout */
+.doctor-panel {
+  width: 340px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-soft);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Case card */
+.case-card {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  background: var(--bg-soft);
+  margin-bottom: 12px;
+  min-height: 80px;
+}
+
+.case-card-empty {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.case-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.case-difficulty {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  width: fit-content;
+}
+
+.diff-easy { background: #d4edda; color: #155724; }
+.diff-mid  { background: #fff3cd; color: #856404; }
+.diff-hard { background: #f8d7da; color: #721c24; }
+
+.case-complaint {
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.case-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* Doctor panel action buttons */
+.doctor-panel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+/* Doctor quick-action chips */
+.doctor-chip {
+  background: var(--blue-light);
+  color: var(--blue-deep);
+  border: 1px solid var(--blue-mist);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.doctor-chip:hover {
+  background: var(--blue-mist);
+}
+
+/* Evaluation card */
+.evaluation-card {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+.eval-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.eval-correct   { background: #d4edda; color: #155724; }
+.eval-incorrect { background: #f8d7da; color: #721c24; }
+
+.eval-icon {
+  font-size: 1.1rem;
+}
+
+.eval-body {
+  padding: 12px 14px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.eval-body p {
+  margin: 0 0 8px;
+}
+
+.teaching-list {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
+}
+
+.teaching-list li {
+  margin-bottom: 6px;
+}
+
+/* ── Progress dots ── */
+.case-progress {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.progress-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 22px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: var(--bg-soft);
+  color: var(--muted);
+  border: 1px solid var(--border-soft);
+  transition: background 0.2s, color 0.2s;
+}
+
+.progress-dot.revealed {
+  background: #d4edda;
+  color: #155724;
+  border-color: #b1dfbb;
+}
+
+/* ── Doctor panel tabs ── */
+.doctor-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.doctor-tab {
+  flex: 1;
+  padding: 8px 4px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.doctor-tab:hover {
+  color: var(--text);
+}
+
+.doctor-tab.active {
+  color: var(--blue-deep);
+  border-bottom-color: var(--blue-deep);
+}
+
+.doctor-tab-content {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+  padding: 0 16px 16px;
+}
+
+.doctor-tab-content.active {
+  display: flex;
+}
+
+.tab-desc {
+  font-size: 0.84rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 4px;
+}
+
+/* ── Differential builder ── */
+.diff-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.diff-input-row input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.86rem;
+  background: var(--white);
+}
+
+.diff-input-row button {
+  padding: 7px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+#diffList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diff-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  background: var(--white);
+  font-size: 0.86rem;
+}
+
+.diff-text {
+  flex: 1;
+}
+
+.diff-remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.diff-remove:hover {
+  color: var(--danger);
+}
+
+.diff-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.diff-correct {
+  background: #d4edda;
+  border-color: #b1dfbb;
+}
+.diff-correct .diff-badge { background: #155724; color: #fff; }
+
+.diff-plausible {
+  background: #fff3cd;
+  border-color: #ffeeba;
+}
+.diff-plausible .diff-badge { background: #856404; color: #fff; }
+
+.diff-unlikely {
+  background: #f8d7da;
+  border-color: #f5c6cb;
+}
+.diff-unlikely .diff-badge { background: #721c24; color: #fff; }
+
+#checkDiffBtn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--blue-deep);
+  color: #fff;
+  font-size: 0.84rem;
+  font-weight: 500;
+  align-self: flex-start;
+  cursor: pointer;
+}
+
+#checkDiffBtn:hover { opacity: 0.9; }
+
+/* ── Quiz ── */
+.quiz-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.quiz-question {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  background: var(--white);
+}
+
+.quiz-stem {
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quiz-option {
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  font-size: 0.84rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.quiz-option:hover:not(:disabled) {
+  background: var(--blue-light);
+  border-color: var(--blue);
+}
+
+.quiz-option:disabled {
+  cursor: default;
+}
+
+.quiz-correct {
+  background: #d4edda !important;
+  border-color: #28a745 !important;
+  color: #155724;
+}
+
+.quiz-wrong {
+  background: #f8d7da !important;
+  border-color: #dc3545 !important;
+  color: #721c24;
+}
+
+.quiz-explanation {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  line-height: 1.5;
+}
+
+#loadQuizBtn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.84rem;
+  font-weight: 500;
+  align-self: flex-start;
+}
+
+#loadQuizBtn:hover { opacity: 0.9; }
+
+/* ── Evaluation scores (Phase E) ── */
+.eval-scores {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 8px;
+}
+
+.eval-score-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.84rem;
+}
+
+.eval-score-item span:last-child {
+  font-family: monospace;
+  letter-spacing: 2px;
+}
+
+.eval-warn {
+  font-size: 0.82rem;
+  color: #856404;
+  background: #fff3cd;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  margin-top: 2px;
+}
+
+.eval-grade {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+/* ── Submit diagnosis button ── */
+#submitDiagnosisBtn {
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--blue-deep);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+#submitDiagnosisBtn:hover { opacity: 0.9; }
+
+/* ── New case button ── */
+#newCaseBtn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.84rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+#newCaseBtn:hover { opacity: 0.9; }
+
+@media (max-width: 1220px) {
+  .doctor-panel {
+    display: none;
+  }
+
+  body.doctor-mode .doctor-panel {
+    display: flex;
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 100;
+    box-shadow: var(--shadow-lg);
+  }
+}

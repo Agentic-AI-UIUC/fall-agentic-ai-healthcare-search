@@ -25,10 +25,13 @@ load_dotenv()  # Loads GROQ_API_KEY, SENDER_EMAIL, SENDER_PASSWORD from .env
 
 from werkzeug.utils import secure_filename
 
-
-from pipeline.email_sender import process_and_send_pre_medical
 from pipeline.main import run_agent
+from pipeline.email_sender import process_and_send_pre_medical
 from pipeline.agents.intake_agent import run_intake_step
+from pipeline.agents.patient_sim_agent import (
+    run_patient_sim, generate_case_from_chunks, new_session,
+    generate_quiz, check_differential,
+)
 
 # --------------------------------------------------
 # Paths / config
@@ -56,6 +59,7 @@ app = Flask(
 # simple in-memory stores for local dev / prototype
 uploaded_docs = {}
 intake_sessions = {}
+doctor_sessions = {}  # session_id -> {case, messages, session_complete}
 
 
 # --------------------------------------------------
@@ -147,6 +151,112 @@ def serve_frontend_assets(path):
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"}), 200
+
+
+# --------------------------------------------------
+# Doctor Practice Mode API
+# --------------------------------------------------
+
+@app.route("/api/doctor/session", methods=["POST"])
+def doctor_new_session():
+    """Start a new doctor-practice session with a freshly generated patient case."""
+    try:
+        data = request.get_json(silent=True) or {}
+        seed_query = data.get("seed_query")  # optional speciality hint
+
+        case = generate_case_from_chunks(seed_query)
+
+        session_id = str(uuid.uuid4())
+        doctor_sessions[session_id] = new_session(case)
+
+        # Return public case info — diagnosis is intentionally omitted
+        public_info = {
+            "chief_complaint": case.get("chief_complaint", ""),
+            "difficulty": case.get("difficulty", "beginner"),
+        }
+
+        return jsonify({
+            "session_id": session_id,
+            "case": public_info,
+            "greeting": (
+                "Hello, doctor. I'm glad you could see me today. "
+                + case.get("chief_complaint", "I haven't been feeling well.")
+            ),
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": "Failed to generate case.", "details": str(e)}), 500
+
+
+@app.route("/api/doctor/chat", methods=["POST"])
+def doctor_chat():
+    """Send a message from the doctor trainee; get a patient response."""
+    try:
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id")
+        doctor_message = (data.get("message") or "").strip()
+
+        if not session_id or session_id not in doctor_sessions:
+            return jsonify({"error": "Invalid or expired session. Start a new case."}), 400
+
+        if not doctor_message:
+            return jsonify({"error": "Message is required."}), 400
+
+        session = doctor_sessions[session_id]
+
+        if session.get("session_complete"):
+            return jsonify({"error": "Session is already complete. Start a new case."}), 400
+
+        result = run_patient_sim(session, doctor_message)
+        doctor_sessions[session_id] = result["session"]
+
+        return jsonify({
+            "session_id": session_id,
+            "response": result["response"],
+            "action_type": result["action_type"],
+            "session_complete": result["session"]["session_complete"],
+            "evaluation": result.get("evaluation"),
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": "Doctor chat failed.", "details": str(e)}), 500
+
+
+@app.route("/api/doctor/quiz", methods=["POST"])
+def doctor_quiz():
+    """Generate MCQs from the active case."""
+    try:
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id")
+
+        if not session_id or session_id not in doctor_sessions:
+            return jsonify({"error": "Invalid session."}), 400
+
+        case = doctor_sessions[session_id]["case"]
+        questions = generate_quiz(case)
+        return jsonify({"questions": questions}), 200
+
+    except Exception as e:
+        return jsonify({"error": "Quiz generation failed.", "details": str(e)}), 500
+
+
+@app.route("/api/doctor/differential", methods=["POST"])
+def doctor_differential():
+    """Check the doctor's differential hypotheses against the case."""
+    try:
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id")
+        hypotheses = data.get("hypotheses", [])
+
+        if not session_id or session_id not in doctor_sessions:
+            return jsonify({"error": "Invalid session."}), 400
+
+        case = doctor_sessions[session_id]["case"]
+        results = check_differential(case, hypotheses)
+        return jsonify({"results": results}), 200
+
+    except Exception as e:
+        return jsonify({"error": "Differential check failed.", "details": str(e)}), 500
 
 
 @app.route("/api/intake", methods=["POST"])
