@@ -17,3 +17,6 @@ data_collection/sources/pdfs/*goldman*.pdf
 # (Optional) Ignore processed output files if they exceed GitHub's 100MB limit
 data_collection/processed/*.json
 data_collection/processed/*.txt
+
+# User database
+users.db
