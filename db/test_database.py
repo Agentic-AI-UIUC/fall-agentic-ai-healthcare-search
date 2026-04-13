@@ -10,13 +10,15 @@ def tmp_db(tmp_path, monkeypatch):
 
 
 def test_save_and_get_message():
-    msg_id = db_module.save_message("sess1", "user", "hello", sources=[], emergency=False)
+    msg_id = db_module.save_message("sess1", "user", "hello", sources=[{"title": "src"}], emergency=False)
     assert msg_id is not None
     msgs = db_module.get_conversation("sess1")
     assert len(msgs) == 1
     assert msgs[0]["message"] == "hello"
     assert msgs[0]["role"] == "user"
     assert msgs[0]["emergency"] == 0
+    assert isinstance(msgs[0]["sources"], list)
+    assert msgs[0]["sources"][0]["title"] == "src"
 
 
 def test_get_conversation_empty():
@@ -89,9 +91,15 @@ def test_update_appointment_status():
     appt_id = db_module.create_appointment(
         "Bob", "bob@example.com", "checkup", "2026-04-22", "9:00 AM"
     )
-    db_module.update_appointment_status(appt_id, "confirmed")
+    result = db_module.update_appointment_status(appt_id, "confirmed")
+    assert result is True
     appt = db_module.get_appointment(appt_id)
     assert appt["status"] == "confirmed"
+
+
+def test_update_appointment_status_not_found():
+    result = db_module.update_appointment_status("does-not-exist", "confirmed")
+    assert result is False
 
 
 def test_get_appointments():

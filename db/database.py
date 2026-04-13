@@ -8,7 +8,7 @@ DB_PATH = Path(__file__).resolve().parent / "app.db"
 
 
 def _conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -19,6 +19,7 @@ def _now():
 
 def init_db():
     with _conn() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS conversations (
                 id TEXT PRIMARY KEY,
@@ -29,6 +30,7 @@ def init_db():
                 emergency INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_conversations_session_id ON conversations(session_id);
             CREATE TABLE IF NOT EXISTS intake_sessions (
                 id TEXT PRIMARY KEY,
                 step TEXT,
@@ -52,7 +54,7 @@ def init_db():
                 reason TEXT,
                 preferred_date TEXT,
                 preferred_time TEXT,
-                status TEXT DEFAULT 'pending',
+                status TEXT DEFAULT 'pending' CHECK(status IN ('pending','confirmed','cancelled')),
                 intake_session_id TEXT,
                 created_at TEXT NOT NULL
             );
@@ -76,10 +78,15 @@ def get_conversation(session_id):
     """Return all messages for a session, oldest first."""
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM conversations WHERE session_id=? ORDER BY created_at",
+            "SELECT * FROM conversations WHERE session_id=? ORDER BY created_at, rowid",
             (session_id,),
         ).fetchall()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["sources"] = json.loads(d["sources"]) if d["sources"] else []
+        result.append(d)
+    return result
 
 
 def save_intake_session(session_id, session_dict):
@@ -169,8 +176,9 @@ def get_appointment(appt_id):
 
 
 def update_appointment_status(appt_id, status):
-    """Update appointment status."""
+    """Update appointment status. Returns True if found, False if not found."""
     with _conn() as conn:
-        conn.execute(
+        cur = conn.execute(
             "UPDATE appointments SET status=? WHERE id=?", (status, appt_id)
         )
+    return cur.rowcount > 0
