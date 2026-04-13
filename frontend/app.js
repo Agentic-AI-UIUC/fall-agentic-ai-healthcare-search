@@ -268,7 +268,9 @@ async function startIntake() {
     const response = await fetch(API.intake, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        patient_id: state.patientId
+      }),
     });
 
     if (!response.ok) throw new Error("Failed to start intake");
@@ -310,6 +312,7 @@ async function handleIntakeSend() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        patient_id: state.patientId,
         intake_session_id: state.intakeSessionId,
         message: text,
       }),
@@ -543,12 +546,15 @@ function loadState() {
     appMode: "patient",
     doctorSessionId: null,
     activeCase: null,
+    patientId: crypto.randomUUID(),
   };
 
   if (!raw) return defaults;
 
   try {
-    return { ...defaults, ...JSON.parse(raw) };
+    const loaded = JSON.parse(raw);
+    if (!loaded.patientId) loaded.patientId = crypto.randomUUID();
+    return { ...defaults, ...loaded, patientId: loaded.patientId || defaults.patientId };
   } catch {
     return defaults;
   }
@@ -772,6 +778,7 @@ async function handleSend() {
         message: text,
         conversation_id: convo.id,
         uploaded_document_id: state.uploadedFile?.serverId || null,
+        patient_id: state.patientId,
       }),
     });
 

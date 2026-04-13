@@ -52,11 +52,11 @@ See the repository root to explore files and modules.
 - LLM interface: `pipeline/generator.py` — contains prompt templates and code that calls the model.
 - Retriever: `pipeline/retriever.py` — handles vector DB queries and result ranking.
 
-## 🚀 Server Setup & Automated Ingestion
+## Server Setup & Automated Ingestion
 1. Start Qdrant with Docker Compose or the official image in the background:
 
 ```sh
-docker run -d -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
+docker run -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage:z qdrant/qdrant
 ```
 
 2. Generate embeddings and ingest chunks automatically into the vector database using our hybrid models (`pritamdeka/S-PubMedBert-MS-MARCO` + `BAAI/bge-large-en-v1.5`):

@@ -265,6 +265,7 @@ def intake():
         data = request.get_json(silent=True) or {}
 
         session_id = data.get("intake_session_id")
+        patient_id = data.get("patient_id")
         user_message = data.get("message")  # None on first call to start the flow
 
         # Load or create session
@@ -279,6 +280,18 @@ def intake():
                 "complete": False,
                 "emergency": False,
             }
+            
+            if patient_id:
+                patient_file = INTAKE_DIR / f"{patient_id}.json"
+                if patient_file.exists():
+                    try:
+                        with open(patient_file, "r") as f:
+                            past_form = json.load(f)
+                        past_form["chief_complaint"] = ""
+                        past_form["timestamp"] = ""
+                        session["form"] = past_form
+                    except Exception as e:
+                        print(f"Failed to load patient history: {e}")
 
         # Strip the message if present
         if user_message is not None:
@@ -292,6 +305,8 @@ def intake():
         # Save completed form to disk
         if result.get("complete") and result.get("form"):
             _save_intake_form(session_id, result["form"])
+            if patient_id:
+                _save_intake_form(patient_id, result["form"])
 
         return jsonify({
             "intake_session_id": session_id,
@@ -544,6 +559,17 @@ def chat():
 
         user_message = (data.get("message") or "").strip()
         uploaded_document_id = data.get("uploaded_document_id")
+        patient_id = data.get("patient_id")
+        
+        intake_form = None
+        if patient_id:
+            patient_file = INTAKE_DIR / f"{patient_id}.json"
+            if patient_file.exists():
+                try:
+                    with open(patient_file, "r") as f:
+                        intake_form = json.load(f)
+                except Exception as e:
+                    print(f"Failed to load patient history for chat context: {e}")
 
         if not user_message:
             return jsonify({"error": "Message is required."}), 400
@@ -561,6 +587,7 @@ def chat():
             user_message=user_message,
             conversation_id=data.get("conversation_id"),
             uploaded_document_id=uploaded_document_id,
+            intake_form=intake_form,
         )
 
         return jsonify({
