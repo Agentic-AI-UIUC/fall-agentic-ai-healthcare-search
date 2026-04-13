@@ -25,6 +25,8 @@ load_dotenv()  # Loads GROQ_API_KEY, SENDER_EMAIL, SENDER_PASSWORD from .env
 
 from werkzeug.utils import secure_filename
 
+import db.database as db
+
 from pipeline.main import run_agent
 from pipeline.email_sender import process_and_send_pre_medical
 from pipeline.agents.intake_agent import run_intake_step
@@ -50,6 +52,8 @@ ALLOWED_EXTENSIONS = {
     "pdf", "txt", "doc", "docx", "png", "jpg", "jpeg"
 }
 
+db.init_db()
+
 app = Flask(
     __name__,
     static_folder=str(FRONTEND_DIR),
@@ -57,7 +61,6 @@ app = Flask(
 )
 
 # simple in-memory stores for local dev / prototype
-uploaded_docs = {}
 intake_sessions = {}
 doctor_sessions = {}  # session_id -> {case, messages, session_complete}
 
@@ -549,8 +552,10 @@ def chat():
             return jsonify({"error": "Message is required."}), 400
 
         # Augment query with document context if a file was uploaded
-        if uploaded_document_id and uploaded_document_id in uploaded_docs:
-            doc_meta = uploaded_docs[uploaded_document_id]
+        doc_meta = None
+        if uploaded_document_id:
+            doc_meta = db.get_document(uploaded_document_id)
+        if doc_meta:
             user_message = (
                 f"{user_message}\n\n"
                 f"Uploaded document context: {doc_meta['original_name']}"
@@ -602,13 +607,7 @@ def upload():
 
         file.save(save_path)
 
-        uploaded_docs[doc_id] = {
-            "document_id": doc_id,
-            "original_name": original_name,
-            "stored_name": stored_name,
-            "path": str(save_path),
-            "uploaded_at": datetime.utcnow().isoformat() + "Z"
-        }
+        db.save_document(doc_id, original_name, stored_name, str(save_path))
 
         return jsonify({
             "document_id": doc_id,
