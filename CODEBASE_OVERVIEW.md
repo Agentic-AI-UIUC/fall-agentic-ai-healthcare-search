@@ -1,6 +1,6 @@
 # Codebase Overview: Agentic AI Healthcare Search
 
-This is an **open research prototype for a Retrieval-Augmented Generation (RAG) pipeline** focused on medical text. The goal is to build an explainable medical assistant that can answer health-related queries with source citations.
+Multi-agent healthcare system on a RAG pipeline. Two operating modes: **Patient Mode** (medical Q&A, intake, document analysis) and **Doctor Practice Mode** (simulated patient encounters for clinical training).
 
 ---
 
@@ -8,48 +8,50 @@ This is an **open research prototype for a Retrieval-Augmented Generation (RAG) 
 
 ```
 fall-agentic-ai-healthcare-search/
-├── data_collection/          # Data ingestion pipeline
-│   ├── scripts/              # PDF extraction, web scraping, KB building
-│   │   ├── step1_clean_pdf.py       # PDF extraction and cleaning
-│   │   ├── msd_link_fetcher.py      # MSD Manual link scraping
-│   │   ├── msd_content_fetcher.py   # MSD Manual content scraping
-│   │   └── build_knowledge_base.py  # Combine sources into KB
-│   ├── sources/              # Raw PDFs and MSD data
-│   └── processed/            # Generated knowledge base (~111K entries, 37MB)
-├── db/                       # Vector database integration
-│   ├── ingestion.py          # Load embeddings into Qdrant
-│   └── test_qdrant.py        # Connectivity tests
-├── pipeline/                 # RAG Pipeline (skeleton - not yet implemented)
-│   ├── main.py               # Orchestration (empty)
-│   ├── retriever.py          # Vector search (empty)
-│   └── generator.py          # LLM interface (empty)
-├── archive/                  # Legacy experimental code
-│   ├── src/                  # Old experimental modules
-│   └── convo-history/        # Previous conversation storage
-└── README.md                 # Main project documentation
+├── app.py                        # Flask backend — all API routes
+├── frontend/                     # Vanilla HTML/JS/CSS
+│   ├── index.html
+│   ├── app.js
+│   └── styles.css
+├── pipeline/                     # Agent + RAG logic
+│   ├── main.py                   # LangGraph StateGraph orchestrator (patient mode)
+│   ├── retriever.py              # Qdrant vector search
+│   ├── generator.py              # Groq LLM generation
+│   ├── prompts.py                # Prompt templates
+│   ├── email_sender.py           # Resend email integration
+│   └── agents/
+│       ├── intake_agent.py       # Multi-step patient intake conversation
+│       ├── patient_sim_agent.py  # Doctor Practice Mode simulated patient
+│       └── scheduling_agent.py   # [PLANNED] Appointment booking tool
+├── db/
+│   ├── ingestion.py              # Embed + upsert chunks into Qdrant
+│   ├── test_qdrant.py            # Qdrant connectivity test
+│   └── database.py               # [PLANNED] SQLite persistence layer
+├── data_collection/
+│   ├── scripts/                  # PDF extraction, MSD scraping, KB building
+│   ├── sources/                  # Raw PDFs and MSD data
+│   └── processed/                # clean_chunks.json (~111K chunks)
+├── uploads/                      # Uploaded patient documents (files on disk)
+├── intake_forms/                 # Legacy intake JSON files (moving to SQLite)
+├── docs/superpowers/specs/       # Design specs
+└── archive/                      # Legacy code — not active
 ```
 
 ---
 
 ## Implementation Status
 
-### Completed Components
-
-| Component | Status | Details |
-|-----------|--------|---------|
-| **PDF Text Extraction** | ✅ Done | Extracts and chunks medical PDFs (~644 chunks) |
-| **MSD Manual Scraping** | ✅ Done | Scraped content from msdmanuals.com |
-| **Knowledge Base Assembly** | ✅ Done | Combined 111K+ medical document chunks |
-| **Vector Database Setup** | ✅ Done | Qdrant integration with sentence-transformers embeddings |
-| **Data Ingestion** | ✅ Done | Batch upload to Qdrant verified working |
-
-### Pending Implementation
-
-| Component | Status | Location |
-|-----------|--------|----------|
-| **Retriever** | ⚠️ Empty | `pipeline/retriever.py` - query Qdrant, get top-k results |
-| **Generator** | ⚠️ Empty | `pipeline/generator.py` - LLM interface with prompts |
-| **Orchestrator** | ⚠️ Empty | `pipeline/main.py` - coordinate retrieval → generation |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| PDF extraction + MSD scraping | ✅ Done | 111K+ chunks in Qdrant |
+| Qdrant vector DB | ✅ Done | `medical_chunks_hybrid_fast`, cosine similarity |
+| LangGraph orchestrator | ✅ Done | `pipeline/main.py` — intent → retrieval → generation |
+| Groq LLM generation | ✅ Done | `llama-3.3-70b-versatile` via langchain-groq |
+| Patient intake agent | ✅ Done | Multi-step, emergency detection, PDF export |
+| Doctor Practice Mode | ✅ Done | Dynamic case gen, evaluation, quiz, differential |
+| Flask backend + frontend | ✅ Done | Patient + Doctor modes, mode switching |
+| **SQLite persistence** | 🔲 Planned | Replace in-memory dicts — see design spec |
+| **Appointment scheduling** | 🔲 Planned | LLM tool + post-intake UI + API endpoints |
 
 ---
 
@@ -57,136 +59,92 @@ fall-agentic-ai-healthcare-search/
 
 | Category | Technology |
 |----------|------------|
-| **Vector Database** | Qdrant (Docker-based, localhost:6333) |
-| **Embeddings** | sentence-transformers (`all-MiniLM-L6-v2`, 384-dim) |
-| **RAG Framework** | LangChain |
-| **Web Scraping** | Playwright, httpx, selectolax |
-| **PDF Processing** | pypdf |
-| **Data Processing** | pandas, CSV |
-| **Python Version** | 3.11+ |
+| Vector DB | Qdrant (Docker, `localhost:6333`) |
+| Embeddings | `BAAI/bge-small-en-v1.5` + PubMedBERT (sentence-transformers) |
+| LLM | Groq API — `llama-3.3-70b-versatile` |
+| Orchestration | LangGraph `StateGraph` |
+| Web framework | Flask |
+| Frontend | Vanilla HTML/JS/CSS |
+| Email | Resend API |
+| Persistence | SQLite (planned — currently in-memory dicts) |
 
 ---
 
-## Data Pipeline Details
+## Key Configuration
 
-### Data Sources
+- Qdrant: `localhost:6333`, collection `medical_chunks_hybrid_fast`
+- LLM: `GROQ_API_KEY` in `.env`
+- Flask: port 5000
+- Chunked data: `data_collection/processed/clean_chunks.json`
 
-1. **PDF Textbook** - "Symptoms to Diagnosis" (medical case studies and diagnostic algorithms)
-2. **MSD Manual** - Professional medical reference articles scraped from msdmanuals.com
+---
 
-### Knowledge Base Format
+## API Endpoints
 
-Combined into a **37MB knowledge base** (`knowledge_base.json`) with 111K+ searchable chunks:
+| Method | Route | Mode | Purpose |
+|--------|-------|------|---------|
+| GET | `/api/health` | Both | Health check |
+| POST | `/api/chat` | Patient | RAG-powered Q&A |
+| POST | `/api/upload` | Patient | Upload document |
+| POST | `/api/intake` | Patient | Multi-turn intake conversation |
+| GET | `/api/intake/<id>/download` | Patient | Download intake PDF |
+| GET | `/api/intake/<id>/json` | Patient | Get intake JSON |
+| POST | `/api/intake/<id>/email` | Patient | Email intake to doctor |
+| POST | `/api/pre_medical` | Patient | Process + email pre-medical form |
+| POST | `/api/doctor/session` | Doctor | Start new case |
+| POST | `/api/doctor/chat` | Doctor | Simulated patient response |
+| POST | `/api/doctor/quiz` | Doctor | Generate MCQs |
+| POST | `/api/doctor/differential` | Doctor | Check differential hypotheses |
+| POST | `/api/appointments` | Patient | Book appointment *(planned)* |
+| GET | `/api/appointments` | Patient | List appointments *(planned)* |
+| GET | `/api/appointments/<id>` | Patient | Get appointment *(planned)* |
+| PATCH | `/api/appointments/<id>` | Patient | Update status *(planned)* |
 
-```json
-{
-  "id": "pdf_1" or "msd_idx_j",
-  "source": "PDF" or "MSD",
-  "title": "document title",
-  "url": null or "https://...",
-  "text": "chunk content (3000 chars with 250 char overlap)"
-}
+---
+
+## Dual-Mode System
+
+| | Patient Mode | Doctor Practice Mode |
+|---|---|---|
+| User | Patient seeking info | Doctor/trainee practicing diagnosis |
+| Agent | Medical Q&A assistant | Simulated patient (hidden diagnosis) |
+| State | `uploaded_docs`, `intake_sessions` | `doctor_sessions` (in-memory, resets per case) |
+| LLM calls | LangGraph pipeline | Direct Groq calls in `patient_sim_agent.py` |
+| Right panel | Upload + intake | Case card, differential, quiz, evaluation |
+
+---
+
+## Session State (current — pre-persistence)
+
+```python
+# app.py — all lost on server restart
+uploaded_docs = {}      # doc_id -> metadata dict
+intake_sessions = {}    # session_id -> session dict
+doctor_sessions = {}    # session_id -> {case, messages, session_complete}
 ```
 
-### Processing Pipeline
-
-1. **Step 1:** Extract text from PDFs using `pypdf`
-2. **Step 2:** Clean and chunk text (3000 char chunks, 250 char overlap)
-3. **Step 3:** Scrape MSD Manual links and content
-4. **Step 4:** Combine all sources into unified knowledge base
-5. **Step 5:** Generate embeddings and upload to Qdrant
+After persistence work: `uploaded_docs` and `intake_sessions` move to SQLite. `doctor_sessions` stays in-memory intentionally.
 
 ---
 
-## Component Details
-
-### Data Collection (`data_collection/scripts/`)
-
-| Script | Purpose |
-|--------|---------|
-| `step1_clean_pdf.py` | Extract text from PDFs, clean, and chunk into segments |
-| `msd_link_fetcher.py` | Scrape MSD Manual topic links using Playwright |
-| `msd_content_fetcher.py` | Fetch article content from MSD URLs using httpx |
-| `build_knowledge_base.py` | Combine PDF chunks and MSD articles into unified JSON |
-
-### Database (`db/`)
-
-| Script | Purpose |
-|--------|---------|
-| `ingestion.py` | Load knowledge base into Qdrant with embeddings |
-| `test_qdrant.py` | Verify Qdrant server connectivity |
-
-### Pipeline (`pipeline/`) - TO BE IMPLEMENTED
-
-| Script | Purpose |
-|--------|---------|
-| `main.py` | Orchestrate retrieval → prompt building → LLM call |
-| `retriever.py` | Query Qdrant, retrieve top-k similar chunks |
-| `generator.py` | LLM interface with prompt templates and source attribution |
-
----
-
-## Environment Setup
-
-### Prerequisites
+## Commands
 
 ```bash
-# Create virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r archive/requirementsllm.txt
-pip install playwright selectolax
-python -m playwright install
-```
-
-### Running Qdrant (Development)
-
-```bash
-# Docker-based local Qdrant
+# Start Qdrant
 docker run -p 6333:6333 -v qdrant_storage:/qdrant/storage qdrant/qdrant:v1.2.0
+
+# Ingest data (one-time)
+python db/ingestion.py
+
+# Run app
+python app.py
+
+# Test Qdrant
+python db/test_qdrant.py
 ```
 
 ---
 
-## Recent Git History
+## Design Specs
 
-| Commit | Description |
-|--------|-------------|
-| `d5a2c05` | Merge PR #4 - Recent contributions |
-| `4b90fa9` | Adding data to Qdrant - Main ingestion verified |
-| `18f893f` | Updated README, high-level overview |
-| `eb874c1` | Moving test_qdrant |
-| `18521a8` | Merge PR #3 - Collaborative updates |
-
----
-
-## Next Steps
-
-1. **Implement RAG Pipeline:**
-   - Fill in `pipeline/retriever.py` - query Qdrant, retrieve top-k
-   - Fill in `pipeline/generator.py` - prompt templates, LLM calls
-   - Fill in `pipeline/main.py` - orchestration
-
-2. **LLM Integration:**
-   - Decide on LLM provider (Groq, Ollama, OpenAI, etc.)
-   - Implement prompt engineering with source attribution
-   - Add streaming response capability
-
-3. **Testing & Refinement:**
-   - Benchmark embedding models and retrieval accuracy
-   - Tune chunk size and overlap parameters
-   - Evaluate answer quality
-
-4. **Future Enhancements:**
-   - Multi-modal retrieval (medical images)
-   - Fine-tuned domain embeddings
-   - Chat history and conversational context
-   - Agent-based specialized tasks (symptom checker, risk assessment)
-
----
-
-## Summary
-
-The **data foundation is solid** - medical documents are extracted, chunked, and indexed in Qdrant. The **next step** is implementing the actual RAG pipeline (`retriever.py`, `generator.py`, `main.py`) to query the vector database and generate grounded answers with an LLM.
+- `docs/superpowers/specs/2026-04-13-persistence-scheduling-design.md` — SQLite persistence + appointment scheduling
