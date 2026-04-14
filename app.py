@@ -553,6 +553,7 @@ def chat():
             "answer": result["generated_answer"],
             "sources": result["sources"],
             "emergency": result.get("emergency_flag", False),
+            "conversation_id": conversation_id,
         }), 200
 
     except Exception as e:
