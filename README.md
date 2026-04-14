@@ -90,14 +90,14 @@ docker run -d -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant
 2. Generate embeddings and ingest chunks automatically into the vector database using our hybrid models (`pritamdeka/S-PubMedBert-MS-MARCO` + `BAAI/bge-large-en-v1.5`):
 
 ```sh
-python db/ingestion.py
+uv run python db/ingestion.py
 ```
 This script will parse all processed texts, embed them, upload them natively to Qdrant, and perform a small retrieval test.
 
 ## Notes and next steps
 - This repo has been refactored so active code lives in `data_collection/`, `db/`, and `pipeline/`.
 - Keep `archive/` for reference only.
-- If you want, I can also add a minimal `requirements.txt` and a short `scripts/` folder with reproducible quickstart commands.
+- Dependencies are managed with `uv` via `pyproject.toml` and `uv.lock`.
 
 ---
 Last updated: March 2026
