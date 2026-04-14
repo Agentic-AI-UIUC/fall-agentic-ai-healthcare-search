@@ -301,6 +301,7 @@ def intake():
             "intake_form": result.get("form") if result.get("complete") else None,
             "emergency": result.get("emergency", False),
             "options": result.get("options", []),
+            "offer_scheduling": result.get("offer_scheduling", False),
         }), 200
 
     except Exception as e:
