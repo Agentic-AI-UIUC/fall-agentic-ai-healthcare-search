@@ -34,6 +34,7 @@ from pipeline.agents.patient_sim_agent import (
     run_patient_sim, generate_case_from_chunks, new_session,
     generate_quiz, check_differential,
 )
+from pipeline.agents.scheduling_agent import book_appointment as _book_appointment
 
 # --------------------------------------------------
 # Paths / config
@@ -621,6 +622,81 @@ def pre_medical():
             "error": "Pre-medical form processing failed.",
             "details": str(e)
         }), 500
+
+
+# --------------------------------------------------
+# Appointment Scheduling API
+# --------------------------------------------------
+
+@app.route("/api/appointments", methods=["POST"])
+def create_appointment_route():
+    """Book an appointment from the UI form or LLM tool."""
+    try:
+        data = request.get_json(silent=True) or {}
+
+        patient_name = (data.get("patient_name") or "").strip()
+        email = (data.get("patient_email") or "").strip()
+        reason = (data.get("reason") or "").strip()
+        preferred_date = (data.get("preferred_date") or "").strip()
+        preferred_time = (data.get("preferred_time") or "").strip()
+        intake_session_id = data.get("intake_session_id")
+
+        result = _book_appointment(
+            patient_name=patient_name,
+            email=email,
+            reason=reason,
+            preferred_date=preferred_date,
+            preferred_time=preferred_time,
+            intake_session_id=intake_session_id,
+        )
+
+        if not result["success"]:
+            return jsonify({"error": result["error"]}), 400
+
+        return jsonify(result), 201
+
+    except Exception as e:
+        return jsonify({"error": "Failed to book appointment.", "details": str(e)}), 500
+
+
+@app.route("/api/appointments", methods=["GET"])
+def list_appointments():
+    """List all appointments."""
+    try:
+        appointments = db.get_appointments()
+        return jsonify({"appointments": appointments}), 200
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch appointments.", "details": str(e)}), 500
+
+
+@app.route("/api/appointments/<appointment_id>", methods=["GET"])
+def get_appointment_route(appointment_id):
+    """Get a single appointment by ID."""
+    appt = db.get_appointment(appointment_id)
+    if not appt:
+        return jsonify({"error": "Appointment not found."}), 404
+    return jsonify({"appointment": appt}), 200
+
+
+@app.route("/api/appointments/<appointment_id>", methods=["PATCH"])
+def update_appointment_route(appointment_id):
+    """Update appointment status (confirmed | cancelled)."""
+    try:
+        data = request.get_json(silent=True) or {}
+        status = (data.get("status") or "").strip()
+
+        if status not in ("pending", "confirmed", "cancelled"):
+            return jsonify({"error": "Status must be pending, confirmed, or cancelled."}), 400
+
+        appt = db.get_appointment(appointment_id)
+        if not appt:
+            return jsonify({"error": "Appointment not found."}), 404
+
+        db.update_appointment_status(appointment_id, status)
+        return jsonify({"message": f"Appointment {appointment_id[:8]} updated to {status}."}), 200
+
+    except Exception as e:
+        return jsonify({"error": "Failed to update appointment.", "details": str(e)}), 500
 
 
 # --------------------------------------------------
