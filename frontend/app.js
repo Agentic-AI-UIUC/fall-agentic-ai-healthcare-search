@@ -6,6 +6,7 @@ const API = {
   upload: "/api/upload",
   preMedical: "/api/pre_medical",
   intake: "/api/intake",
+  appointments: "/api/appointments",
   doctorSession: "/api/doctor/session",
   doctorChat: "/api/doctor/chat",
   doctorQuiz: "/api/doctor/quiz",
@@ -53,6 +54,14 @@ document.addEventListener("DOMContentLoaded", () => {
     suggestions: document.getElementById("suggestions"),
     reviewPanel: document.getElementById("reviewPanel"),
     uploadZone: document.getElementById("uploadZone"),
+    appointmentForm: document.getElementById("appointmentForm"),
+    appointmentName: document.getElementById("appointmentName"),
+    appointmentEmail: document.getElementById("appointmentEmail"),
+    appointmentReason: document.getElementById("appointmentReason"),
+    appointmentDate: document.getElementById("appointmentDate"),
+    appointmentTime: document.getElementById("appointmentTime"),
+    appointmentSubmitBtn: document.getElementById("appointmentSubmitBtn"),
+    appointmentStatus: document.getElementById("appointmentStatus"),
     // Pre-Medical Modal
     preMedicalBtn: document.getElementById("preMedicalBtn"),
     preMedicalModal: document.getElementById("preMedicalModal"),
@@ -181,6 +190,7 @@ function bindEvents() {
 
   // File upload
   elements.fileInput.addEventListener("change", handleFileUpload);
+  elements.appointmentForm.addEventListener("submit", handleAppointmentSubmit);
 
   // Drag and drop on upload zone
   const zone = elements.uploadZone;
@@ -238,6 +248,7 @@ function showMainApp() {
   ensureConversationExists();
   applyMode();
   renderAll();
+  prefillAppointmentForm();
 }
 
 function skipToApp() {
@@ -337,6 +348,7 @@ async function handleIntakeSend() {
     if (data.intake_complete) {
       state.intakeForm = data.intake_form;
       state.hasEnteredApp = true;
+      state.showSchedulingCard = !!data.offer_scheduling;
       saveState();
 
       setTimeout(() => {
@@ -431,9 +443,12 @@ async function handleIntakeSend() {
         const continueBtn = document.createElement("button");
         continueBtn.className = "landing-cta intake-continue-btn";
         continueBtn.style.marginTop = "15px";
-        continueBtn.textContent = "Continue to assistant";
+        continueBtn.textContent = data.offer_scheduling ? "Book an appointment" : "Continue to assistant";
         continueBtn.addEventListener("click", () => {
           skipToApp();
+          if (data.offer_scheduling) {
+            focusAppointmentForm();
+          }
         });
 
         actions.appendChild(downloadBtn);
@@ -540,6 +555,7 @@ function loadState() {
     hasEnteredApp: false,
     intakeSessionId: null,
     intakeForm: null,
+    showSchedulingCard: false,
     appMode: "patient",
     doctorSessionId: null,
     activeCase: null,
@@ -827,6 +843,7 @@ function renderAll() {
   renderConversationList();
   renderMessages();
   renderFileCard();
+  renderSchedulingHint();
 }
 
 function renderConversationList() {
@@ -995,6 +1012,91 @@ function renderFileCard() {
   `;
 }
 
+function renderSchedulingHint() {
+  elements.appointmentForm.classList.toggle("appointment-card-suggested", !!state.showSchedulingCard);
+}
+
+function prefillAppointmentForm() {
+  if (!elements.appointmentForm) return;
+
+  elements.appointmentDate.min = getLocalDateInputValue();
+
+  const form = state.intakeForm || {};
+  if (!elements.appointmentReason.value && form.chief_complaint) {
+    elements.appointmentReason.value = form.chief_complaint;
+  }
+}
+
+function focusAppointmentForm() {
+  prefillAppointmentForm();
+  elements.reviewPanel.classList.add("force-open");
+  elements.appointmentForm.scrollIntoView({ block: "start", behavior: "smooth" });
+  elements.appointmentName.focus();
+}
+
+async function handleAppointmentSubmit(event) {
+  event.preventDefault();
+
+  if (!elements.appointmentForm.checkValidity()) {
+    elements.appointmentForm.reportValidity();
+    return;
+  }
+
+  const payload = {
+    patient_name: elements.appointmentName.value.trim(),
+    patient_email: elements.appointmentEmail.value.trim(),
+    reason: elements.appointmentReason.value.trim(),
+    preferred_date: elements.appointmentDate.value,
+    preferred_time: elements.appointmentTime.value,
+    intake_session_id: state.intakeSessionId || null,
+  };
+
+  elements.appointmentSubmitBtn.disabled = true;
+  setAppointmentStatus("Requesting appointment...", "loading");
+
+  try {
+    if (!backendOnline) await checkBackendHealth();
+    if (!backendOnline) throw new Error("Backend is not available. Start the Flask app and try again.");
+
+    const response = await fetch(API.appointments, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not request appointment.");
+
+    state.showSchedulingCard = false;
+    saveState();
+    renderSchedulingHint();
+    setAppointmentStatus(data.message || "Appointment requested.", "success");
+
+    const convo = getCurrentConversation();
+    if (convo) {
+      convo.messages.push({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: data.message || "Your appointment request was saved.",
+        sources: [],
+        timestamp: new Date().toISOString(),
+      });
+      saveState();
+      renderAll();
+      scrollMessagesToBottom();
+    }
+  } catch (error) {
+    setAppointmentStatus(error.message || "Appointment request failed.", "error");
+  } finally {
+    elements.appointmentSubmitBtn.disabled = false;
+  }
+}
+
+function setAppointmentStatus(message, type) {
+  elements.appointmentStatus.textContent = message;
+  elements.appointmentStatus.className = `appointment-status ${type || ""}`.trim();
+}
+
 /* ============================
    UTILITIES
    ============================ */
@@ -1040,6 +1142,11 @@ function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getLocalDateInputValue(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
 }
 
 function escapeHtml(str) {
