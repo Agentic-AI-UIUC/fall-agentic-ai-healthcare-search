@@ -36,7 +36,7 @@ Multi-agent healthcare system built on a RAG (Retrieval-Augmented Generation) pi
 
 ```bash
 # Start Qdrant (required before running the app)
-docker run -p 6333:6333 -v qdrant_storage:/qdrant/storage qdrant/qdrant:v1.2.0
+docker run -p 6333:6333 -v qdrant_storage:/qdrant/storage qdrant/qdrant:v1.17.0
 
 # Ingest data into Qdrant (one-time, after Qdrant is running)
 python db/ingestion.py

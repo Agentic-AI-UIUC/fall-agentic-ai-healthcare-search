@@ -69,7 +69,8 @@ If you want a different host port, set `APP_PORT`:
 APP_PORT=5050 docker compose up --build
 ```
 
-If your Qdrant volume is empty, ingest the medical chunks after the services are up:
+If your Qdrant volume is empty, chat will still load but retrieval will not return
+sources yet. Ingest the medical chunks after the services are up:
 
 ```sh
 docker compose exec app uv run --frozen python db/ingestion.py
@@ -90,7 +91,7 @@ volume.
 1. Start Qdrant with Docker Compose or the official image in the background:
 
 ```sh
-docker run -d -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
+docker run -d -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant:v1.17.0
 ```
 
 2. Generate embeddings and ingest chunks automatically into the vector database using our hybrid models (`pritamdeka/S-PubMedBert-MS-MARCO` + `BAAI/bge-large-en-v1.5`):

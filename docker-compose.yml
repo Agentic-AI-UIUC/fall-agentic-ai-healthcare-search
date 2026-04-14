@@ -20,7 +20,7 @@ services:
         condition: service_started
 
   qdrant:
-    image: qdrant/qdrant:v1.2.0
+    image: qdrant/qdrant:v1.17.0
     ports:
       - "6333:6333"
     volumes:

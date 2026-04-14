@@ -10,12 +10,15 @@ the rest of the RAG pipeline.
 
 
 # Import the embedding model used to convert text into vectors
+import logging
 import os
 
 from sentence_transformers import SentenceTransformer
 
 # Import the Qdrant client so Python can talk to the vector database
 from qdrant_client import QdrantClient
+
+logger = logging.getLogger(__name__)
 
 
 # -------------------------------
@@ -66,13 +69,17 @@ def retrieve_chunks(query_text: str, top_k: int = TOP_K):
     # Convert the user query into a vector using the same embedding model
     query_vector = model.encode(bge_query).tolist()
 
-    # Ask Qdrant to find the most similar stored vectors (targeting the 'bge' named vectors)
-    search_result = client.query_points(
-        collection_name=COLLECTION_NAME,
-        query=query_vector,
-        using="bge",  # We must specify which named vector to query in our hybrid collection
-        limit=top_k,  # number of results we want back
-    )
+    try:
+        # Ask Qdrant to find the most similar stored vectors (targeting the 'bge' named vectors)
+        search_result = client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=query_vector,
+            using="bge",  # We must specify which named vector to query in our hybrid collection
+            limit=top_k,  # number of results we want back
+        )
+    except Exception as exc:
+        logger.warning("Qdrant retrieval failed for collection %s: %s", COLLECTION_NAME, exc)
+        return []
 
     # Format the results so they are easier to work with
     results = []
