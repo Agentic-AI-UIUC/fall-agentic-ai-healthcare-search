@@ -61,7 +61,13 @@ Run the web app and Qdrant together:
 docker compose up --build
 ```
 
-Then open http://localhost:5000.
+Then open http://localhost:5001.
+
+If you want a different host port, set `APP_PORT`:
+
+```sh
+APP_PORT=5050 docker compose up --build
+```
 
 If your Qdrant volume is empty, ingest the medical chunks after the services are up:
 

@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "5000:5000"
+      - "${APP_PORT:-5001}:5000"
     env_file:
       - path: .env
         required: false
