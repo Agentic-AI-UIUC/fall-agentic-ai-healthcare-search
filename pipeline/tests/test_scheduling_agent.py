@@ -33,7 +33,7 @@ def test_book_appointment_success():
             preferred_time="10:00 AM",
         )
     assert result["success"] is True
-    assert "TEST-UUID" in result["message"]
+    assert "TESTUUID" in result["message"]
     assert "2026-04-20" in result["message"]
     assert "10:00 AM" in result["message"]
 
@@ -58,6 +58,33 @@ def test_book_appointment_missing_email():
         email="",
         reason="checkup",
         preferred_date="2026-04-20",
+        preferred_time="10:00 AM",
+    )
+    assert result["success"] is False
+    assert "error" in result
+
+
+def test_book_appointment_db_error():
+    from pipeline.agents.scheduling_agent import book_appointment
+    with patch("pipeline.agents.scheduling_agent.create_appointment", side_effect=Exception("DB locked")):
+        result = book_appointment(
+            patient_name="Alice",
+            email="alice@example.com",
+            reason="checkup",
+            preferred_date="2026-04-20",
+            preferred_time="10:00 AM",
+        )
+    assert result["success"] is False
+    assert "error" in result
+
+
+def test_book_appointment_missing_date():
+    from pipeline.agents.scheduling_agent import book_appointment
+    result = book_appointment(
+        patient_name="Alice",
+        email="alice@example.com",
+        reason="checkup",
+        preferred_date="",
         preferred_time="10:00 AM",
     )
     assert result["success"] is False

@@ -41,24 +41,27 @@ def book_appointment(
         or
         {"success": False, "error": str}
     """
-    if not patient_name or not email:
-        return {"success": False, "error": "Name and email are required."}
+    if not patient_name or not email or not preferred_date or not preferred_time:
+        return {"success": False, "error": "Name, email, date, and time are required."}
 
-    appt_id = create_appointment(
-        patient_name=patient_name,
-        email=email,
-        reason=reason,
-        date=preferred_date,
-        time=preferred_time,
-        intake_session_id=intake_session_id,
-    )
+    try:
+        appt_id = create_appointment(
+            patient_name=patient_name,
+            email=email,
+            reason=reason,
+            date=preferred_date,
+            time=preferred_time,
+            intake_session_id=intake_session_id,
+        )
+    except Exception as exc:
+        return {"success": False, "error": f"Could not save appointment: {exc}"}
 
     return {
         "success": True,
         "appointment_id": appt_id,
         "message": (
             f"Your appointment has been booked for {preferred_date} at {preferred_time}. "
-            f"Confirmation ID: {appt_id[:9].upper()}. "
+            f"Confirmation ID: {appt_id.replace('-', '')[:8].upper()}. "
             "A healthcare provider will confirm your appointment shortly."
         ),
     }
