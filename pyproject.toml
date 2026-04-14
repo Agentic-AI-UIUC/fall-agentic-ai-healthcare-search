@@ -25,6 +25,7 @@ dependencies = [
     "flask>=3.1.0",
     "flask-cors>=5.0.0",
     "langgraph>=0.2.0",
+    "fpdf2>=2.8.0",
 ]
 
 [tool.pytest.ini_options]

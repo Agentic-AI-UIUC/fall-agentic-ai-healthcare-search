@@ -1,10 +1,12 @@
 import json
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent / "app.db"
+DB_PATH = Path(os.getenv("DB_PATH", Path(__file__).resolve().parent / "app.db"))
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _conn():

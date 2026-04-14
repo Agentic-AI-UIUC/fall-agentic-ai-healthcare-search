@@ -42,7 +42,7 @@ from pipeline.agents.scheduling_agent import book_appointment as _book_appointme
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
-UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", BASE_DIR / "uploads"))
 
 UPLOAD_DIR.mkdir(exist_ok=True)
 

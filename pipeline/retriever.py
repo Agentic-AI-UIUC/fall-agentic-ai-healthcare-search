@@ -10,6 +10,8 @@ the rest of the RAG pipeline.
 
 
 # Import the embedding model used to convert text into vectors
+import os
+
 from sentence_transformers import SentenceTransformer
 
 # Import the Qdrant client so Python can talk to the vector database
@@ -25,8 +27,8 @@ from qdrant_client import QdrantClient
 COLLECTION_NAME = "medical_chunks_hybrid_fast"
 
 # Where the Qdrant database is running
-QDRANT_HOST = "localhost"
-QDRANT_PORT = 6333
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 
 # Embedding model used for both ingestion AND query embedding
 # (Switching to the fast BGE model we configured in ingestion.py)

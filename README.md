@@ -53,6 +53,34 @@ See the repository root to explore files and modules.
 - Retriever: `pipeline/retriever.py` — handles vector DB queries and result ranking.
 
 ## 🚀 Server Setup & Automated Ingestion
+### Docker Compose
+
+Run the web app and Qdrant together:
+
+```sh
+docker compose up --build
+```
+
+Then open http://localhost:5000.
+
+If your Qdrant volume is empty, ingest the medical chunks after the services are up:
+
+```sh
+docker compose exec app uv run --frozen python db/ingestion.py
+```
+
+For LLM-backed answers, create a local `.env` file before starting compose:
+
+```sh
+GROQ_API_KEY=gsk_...
+```
+
+Compose stores Flask app data in the `app_data` volume, Qdrant vectors in the
+`qdrant_storage` volume, and downloaded embedding models in the `model_cache`
+volume.
+
+### Manual Qdrant
+
 1. Start Qdrant with Docker Compose or the official image in the background:
 
 ```sh
