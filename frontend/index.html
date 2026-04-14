@@ -19,8 +19,42 @@
         </div>
         <span class="landing-brand-name">MedAssist</span>
       </div>
-      <button id="skipIntakeBtn" class="ghost-btn landing-skip-btn">Skip to assistant</button>
+      <div class="landing-nav-right">
+        <button id="showLoginBtn" class="ghost-btn">Log in</button>
+        <button id="showSignupBtn" class="landing-cta-sm">Sign up</button>
+        <button id="skipIntakeBtn" class="ghost-btn landing-skip-btn hidden">Skip to assistant</button>
+      </div>
     </nav>
+
+    <!-- Auth Modal -->
+    <div id="authModal" class="auth-modal-overlay hidden">
+      <div class="auth-modal">
+        <button id="closeAuthModal" class="auth-close-btn">&times;</button>
+
+        <!-- Login Form -->
+        <div id="loginForm" class="auth-form">
+          <h2>Welcome back</h2>
+          <p class="auth-subtitle">Log in to access your saved conversations</p>
+          <div id="loginError" class="auth-error hidden"></div>
+          <input type="email" id="loginEmail" placeholder="Email" autocomplete="email" />
+          <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" />
+          <button id="loginBtn" class="landing-cta auth-submit-btn">Log in</button>
+          <p class="auth-switch">Don't have an account? <a href="#" id="switchToSignup">Sign up</a></p>
+        </div>
+
+        <!-- Signup Form -->
+        <div id="signupForm" class="auth-form hidden">
+          <h2>Create account</h2>
+          <p class="auth-subtitle">Sign up to save your conversation history</p>
+          <div id="signupError" class="auth-error hidden"></div>
+          <input type="text" id="signupUsername" placeholder="Username" autocomplete="username" />
+          <input type="email" id="signupEmail" placeholder="Email" autocomplete="email" />
+          <input type="password" id="signupPassword" placeholder="Password (min 6 characters)" autocomplete="new-password" />
+          <button id="signupBtn" class="landing-cta auth-submit-btn">Create account</button>
+          <p class="auth-switch">Already have an account? <a href="#" id="switchToLogin">Log in</a></p>
+        </div>
+      </div>
+    </div>
 
     <!-- Hero (shown before intake starts) -->
     <div id="landingHero" class="landing-content">
@@ -138,6 +172,10 @@
       <div id="conversationList" class="conversation-list"></div>
 
       <div class="sidebar-bottom">
+        <div id="userInfo" class="user-info hidden">
+          <span id="userDisplayName" class="user-display-name"></span>
+          <button id="logoutBtn" class="ghost-btn logout-btn">Log out</button>
+        </div>
         <button id="backToLandingBtn" class="ghost-btn full-width">Back to home</button>
       </div>
     </aside>

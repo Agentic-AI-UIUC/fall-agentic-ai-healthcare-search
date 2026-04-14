@@ -16,10 +16,7 @@ from pathlib import Path
 
 import json
 
-import io
-from fpdf import FPDF
-
-from flask import Flask, jsonify, request, send_from_directory, Response, send_file
+from flask import Flask, jsonify, request, send_from_directory, Response, session
 from dotenv import load_dotenv
 load_dotenv()  # Loads GROQ_API_KEY, SENDER_EMAIL, SENDER_PASSWORD from .env
 
@@ -31,6 +28,10 @@ from pipeline.agents.intake_agent import run_intake_step
 from pipeline.agents.patient_sim_agent import (
     run_patient_sim, generate_case_from_chunks, new_session,
     generate_quiz, check_differential,
+)
+from db.auth import (
+    init_db, create_user, authenticate_user, get_user_by_id,
+    save_conversation, get_conversations, delete_conversation,
 )
 
 # --------------------------------------------------
@@ -55,6 +56,10 @@ app = Flask(
     static_folder=str(FRONTEND_DIR),
     static_url_path=""
 )
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
+
+# Initialize auth database
+init_db()
 
 # simple in-memory stores for local dev / prototype
 uploaded_docs = {}
@@ -150,6 +155,102 @@ def serve_frontend_assets(path):
 
 @app.route("/api/health", methods=["GET"])
 def health():
+    return jsonify({"status": "ok"}), 200
+
+
+# --------------------------------------------------
+# Auth API
+# --------------------------------------------------
+
+@app.route("/api/auth/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    if not username or not email or not password:
+        return jsonify({"error": "Username, email, and password are required."}), 400
+    if len(password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters."}), 400
+
+    user = create_user(username, email, password)
+    if not user:
+        return jsonify({"error": "Username or email already taken."}), 409
+
+    session["user_id"] = user["id"]
+    return jsonify({"user": user}), 201
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    if not email or not password:
+        return jsonify({"error": "Email and password are required."}), 400
+
+    user = authenticate_user(email, password)
+    if not user:
+        return jsonify({"error": "Invalid email or password."}), 401
+
+    session["user_id"] = user["id"]
+    return jsonify({"user": user}), 200
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def logout():
+    session.pop("user_id", None)
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def me():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"user": None}), 200
+    user = get_user_by_id(user_id)
+    return jsonify({"user": user}), 200
+
+
+# --------------------------------------------------
+# Conversation persistence API
+# --------------------------------------------------
+
+@app.route("/api/conversations", methods=["GET"])
+def list_conversations():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Not authenticated."}), 401
+    convos = get_conversations(user_id)
+    return jsonify({"conversations": convos}), 200
+
+
+@app.route("/api/conversations", methods=["POST"])
+def save_convo():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Not authenticated."}), 401
+
+    data = request.get_json(silent=True) or {}
+    convo_id = data.get("id")
+    title = data.get("title", "New conversation")
+    messages = json.dumps(data.get("messages", []))
+
+    if not convo_id:
+        return jsonify({"error": "Conversation id is required."}), 400
+
+    save_conversation(user_id, convo_id, title, messages)
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/conversations/<convo_id>", methods=["DELETE"])
+def delete_convo(convo_id):
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Not authenticated."}), 401
+    delete_conversation(user_id, convo_id)
     return jsonify({"status": "ok"}), 200
 
 
