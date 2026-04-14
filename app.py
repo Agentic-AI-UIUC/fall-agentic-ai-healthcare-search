@@ -519,6 +519,7 @@ def chat():
 
         user_message = (data.get("message") or "").strip()
         uploaded_document_id = data.get("uploaded_document_id")
+        conversation_id = data.get("conversation_id") or str(uuid.uuid4())
 
         if not user_message:
             return jsonify({"error": "Message is required."}), 400
@@ -536,9 +537,17 @@ def chat():
         # Run the LangGraph agent pipeline
         result = run_agent(
             user_message=user_message,
-            conversation_id=data.get("conversation_id"),
+            conversation_id=conversation_id,
             uploaded_document_id=uploaded_document_id,
         )
+
+        # Persist conversation turn to SQLite
+        original_message = (data.get("message") or "").strip()
+        db.save_message(conversation_id, "user", original_message,
+                        sources=[], emergency=False)
+        db.save_message(conversation_id, "assistant", result["generated_answer"],
+                        sources=result.get("sources", []),
+                        emergency=result.get("emergency_flag", False))
 
         return jsonify({
             "answer": result["generated_answer"],
