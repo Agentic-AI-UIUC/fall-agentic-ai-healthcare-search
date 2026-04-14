@@ -19,6 +19,7 @@ class AgentState(TypedDict, total=False):
     sources: list[dict]
     emergency_flag: bool
     app_mode: str  # "patient" | "doctor" — informational, patient graph ignores doctor mode
+    intake_form: dict | None
 
 
 # ── Graph nodes ───────────────────────────────────────────────────────
@@ -60,6 +61,7 @@ def generate(state: AgentState) -> dict:
         query=state["user_query"],
         chunks=state.get("retrieved_chunks", []),
         conversation_history=state.get("conversation_history"),
+        intake_form=state.get("intake_form"),
     )
 
     # Simple emergency keyword check
@@ -155,6 +157,7 @@ def run_agent(
     conversation_id: str | None = None,
     uploaded_document_id: str | None = None,
     conversation_history: list[dict] | None = None,
+    intake_form: dict | None = None,
 ) -> dict:
     """
     Run the full agent pipeline and return a result dict with:
@@ -168,6 +171,7 @@ def run_agent(
         "user_query": user_message,
         "conversation_history": conversation_history or [],
         "uploaded_document_id": uploaded_document_id,
+        "intake_form": intake_form,
     })
 
     return {

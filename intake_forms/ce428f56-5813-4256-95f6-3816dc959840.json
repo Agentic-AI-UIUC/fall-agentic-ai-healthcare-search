@@ -1,0 +1,13 @@
+{
+  "chief_complaint": "General Checkup",
+  "demographics": "kdf",
+  "emergency_contact": "kdf",
+  "history": "High blood pressure",
+  "family_history": "Heart disease / attack",
+  "lifestyle": "Don't smoke, healthy diet",
+  "activity": "No regular exercise",
+  "medications": "None",
+  "objectives": "Improve general fitness",
+  "emergency_flag": false,
+  "timestamp": "2026-04-07T01:52:06.969734+00:00"
+}
