@@ -49,16 +49,32 @@ def generate_answer(
     query: str,
     chunks: list[dict],
     conversation_history: list[dict] | None = None,
+    intake_form: dict | None = None,
 ) -> str:
     """Generate a grounded medical answer using Groq."""
     context = format_chunks_as_context(chunks)
+    
+    profile_text = "No patient profile provided."
+    if intake_form:
+        profile_parts = []
+        keys_to_extract = ["chief_complaint", "demographics", "history", "family_history", "lifestyle", "medications", "allergies"]
+        for k in keys_to_extract:
+            val = intake_form.get(k)
+            if val and str(val).strip():
+                clean_k = k.replace("_", " ").title()
+                profile_parts.append(f"- {clean_k}: {str(val).strip()}")
+        if profile_parts:
+            profile_text = "\n".join(profile_parts)
 
     try:
         client = _get_client()
     except ValueError:
         return _fallback_answer(chunks)
 
-    system_prompt = MEDICAL_SYSTEM_PROMPT.format(context=context)
+    system_prompt = MEDICAL_SYSTEM_PROMPT.format(
+        context=context,
+        patient_profile=profile_text,
+    )
 
     messages = [{"role": "system", "content": system_prompt}]
 

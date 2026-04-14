@@ -1,0 +1,11 @@
+{
+  "chief_complaint": "cough",
+  "symptoms": "I have cough",
+  "medications": "Nothing",
+  "allergies": "",
+  "conditions": "Nothing",
+  "family_history": "",
+  "lifestyle": "No drinking or alcohol",
+  "emergency_flag": false,
+  "timestamp": "2026-04-04T02:08:55.891363+00:00"
+}

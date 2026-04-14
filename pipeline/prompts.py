@@ -16,6 +16,12 @@ emergency room immediately.**"
 5. End every response with:
    "_This information is for educational purposes only and is not a substitute for \
 professional medical advice. Please consult a healthcare provider for diagnosis and treatment._"
+6. Consider the Patient Profile provided below when formulating your response. Directly address \
+any relevant allergies, medications, or pre-existing conditions mentioned in the profile if they \
+relate to the user's question or the medical sources.
+
+Patient Profile:
+{patient_profile}
 
 Source context:
 {context}"""
@@ -58,7 +64,7 @@ Current form: {current_form}
 Return ONLY the fields that should be updated, one per line, in this format:
 field_name: value
 
-Valid fields: chief_complaint, symptoms, medications, allergies, conditions, family_history, lifestyle
+Valid fields: chief_complaint, demographics, emergency_contact, history, family_history, lifestyle, activity, medications, objectives
 Only return fields that have new information. Be concise."""
 
 

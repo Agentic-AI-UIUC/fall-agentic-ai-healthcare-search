@@ -1,0 +1,11 @@
+{
+  "chief_complaint": "General Checkup",
+  "onset": "A few days",
+  "severity": "4-6 (Moderate)",
+  "medications": "Yes, 1-2 medications",
+  "allergies": "Penicillin/Antibiotics",
+  "conditions": "Diabetes",
+  "lifestyle": "None of the above",
+  "emergency_flag": false,
+  "timestamp": "2026-04-05T05:29:53.169336+00:00"
+}

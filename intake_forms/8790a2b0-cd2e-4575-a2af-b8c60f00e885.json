@@ -1,0 +1,11 @@
+{
+  "chief_complaint": "General Checkup",
+  "onset": "A few days",
+  "severity": "4-6 (Moderate)",
+  "medications": "Yes, 1-2 medications",
+  "allergies": "No known allergies",
+  "conditions": "Hypertension",
+  "lifestyle": "None of the above",
+  "emergency_flag": false,
+  "timestamp": "2026-04-05T23:14:22.657251+00:00"
+}

@@ -22,7 +22,7 @@ load_dotenv()  # Loads GROQ_API_KEY, SENDER_EMAIL, SENDER_PASSWORD from .env
 
 from werkzeug.utils import secure_filename
 
-from pipeline.main import run_pipeline, run_agent
+from pipeline.main import run_agent
 from pipeline.email_sender import process_and_send_pre_medical
 from pipeline.agents.intake_agent import run_intake_step
 from pipeline.agents.patient_sim_agent import (
@@ -366,6 +366,7 @@ def intake():
         data = request.get_json(silent=True) or {}
 
         session_id = data.get("intake_session_id")
+        patient_id = data.get("patient_id")
         user_message = data.get("message")  # None on first call to start the flow
 
         # Load or create session
@@ -380,6 +381,18 @@ def intake():
                 "complete": False,
                 "emergency": False,
             }
+            
+            if patient_id:
+                patient_file = INTAKE_DIR / f"{patient_id}.json"
+                if patient_file.exists():
+                    try:
+                        with open(patient_file, "r") as f:
+                            past_form = json.load(f)
+                        past_form["chief_complaint"] = ""
+                        past_form["timestamp"] = ""
+                        session["form"] = past_form
+                    except Exception as e:
+                        print(f"Failed to load patient history: {e}")
 
         # Strip the message if present
         if user_message is not None:
@@ -393,6 +406,8 @@ def intake():
         # Save completed form to disk
         if result.get("complete") and result.get("form"):
             _save_intake_form(session_id, result["form"])
+            if patient_id:
+                _save_intake_form(patient_id, result["form"])
 
         return jsonify({
             "intake_session_id": session_id,
@@ -404,6 +419,7 @@ def intake():
             "intake_complete": result.get("complete", False),
             "intake_form": result.get("form") if result.get("complete") else None,
             "emergency": result.get("emergency", False),
+            "options": result.get("options", []),
         }), 200
 
     except Exception as e:
@@ -435,34 +451,44 @@ def _format_intake_text(form: dict) -> str:
         form.get("chief_complaint", "Not provided"),
         "",
         "-" * 52,
-        "SYMPTOM DETAILS",
+        "DEMOGRAPHICS & INFO",
         "-" * 52,
-        form.get("symptoms", "Not provided"),
+        form.get("demographics", "Not provided"),
         "",
         "-" * 52,
-        "CURRENT MEDICATIONS",
+        "EMERGENCY & PHYSICIAN",
         "-" * 52,
-        form.get("medications", "Not provided"),
+        form.get("emergency_contact", "Not provided"),
         "",
         "-" * 52,
-        "KNOWN ALLERGIES",
+        "MEDICAL HISTORY",
         "-" * 52,
-        form.get("allergies", "Not provided"),
+        form.get("history", "Not provided"),
         "",
         "-" * 52,
-        "PRE-EXISTING CONDITIONS / SURGERIES",
-        "-" * 52,
-        form.get("conditions", "Not provided"),
-        "",
-        "-" * 52,
-        "FAMILY MEDICAL HISTORY",
+        "FAMILY HISTORY",
         "-" * 52,
         form.get("family_history", "Not provided"),
         "",
         "-" * 52,
-        "LIFESTYLE",
+        "LIFESTYLE & HABITS",
         "-" * 52,
         form.get("lifestyle", "Not provided"),
+        "",
+        "-" * 52,
+        "ACTIVITY & PHYSICAL",
+        "-" * 52,
+        form.get("activity", "Not provided"),
+        "",
+        "-" * 52,
+        "MEDICATIONS",
+        "-" * 52,
+        form.get("medications", "Not provided"),
+        "",
+        "-" * 52,
+        "OBJECTIVES",
+        "-" * 52,
+        form.get("objectives", "Not provided"),
         "",
     ]
 
@@ -486,8 +512,7 @@ def _format_intake_text(form: dict) -> str:
 
 @app.route("/api/intake/<session_id>/download", methods=["GET"])
 def download_intake(session_id):
-    """Download the completed intake form as a text file."""
-    # Try in-memory first, then disk
+    """Download the completed intake form as a PDF file."""
     session = intake_sessions.get(session_id)
     form = None
 
@@ -503,15 +528,108 @@ def download_intake(session_id):
     if not form:
         return jsonify({"error": "Intake form not found or not yet complete."}), 404
 
-    text = _format_intake_text(form)
+    # Create PDF using fpdf (compatible with both fpdf and fpdf2 wrappers)
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", style="B", size=16)
+    pdf.cell(0, 10, "Patient Intake Form", ln=1, align="C")
+    pdf.set_y(pdf.get_y() + 5)
+    
+    pdf.set_font("Helvetica", size=12)
+    pdf.cell(0, 8, f"Date: {form.get('timestamp', 'N/A')}", ln=1)
+    pdf.set_y(pdf.get_y() + 5)
 
-    return Response(
-        text,
-        mimetype="text/plain",
-        headers={
-            "Content-Disposition": f"attachment; filename=intake_form_{session_id[:8]}.txt"
-        },
+    sections = [
+        ("Chief Complaint", "chief_complaint"),
+        ("Demographics & Info", "demographics"),
+        ("Emergency & Physician", "emergency_contact"),
+        ("Medical History", "history"),
+        ("Family History", "family_history"),
+        ("Lifestyle & Habits", "lifestyle"),
+        ("Activity & Physical", "activity"),
+        ("Medications", "medications"),
+        ("Objectives", "objectives")
+    ]
+    
+    for title, key in sections:
+        pdf.set_font("Helvetica", style="B", size=12)
+        pdf.cell(0, 8, title.upper(), ln=1)
+        
+        pdf.set_font("Helvetica", size=11)
+        val = form.get(key, "Not provided")
+        if not isinstance(val, str):
+            val = str(val)
+        val = val.encode('latin-1', 'replace').decode('latin-1')
+        pdf.multi_cell(0, 6, val)
+        pdf.set_y(pdf.get_y() + 4)
+
+    pdf.set_y(pdf.get_y() + 6)
+    pdf.set_font("Helvetica", style="I", size=10)
+    pdf.cell(0, 5, "Generated by MedAssist Patient Intake System - This is not a medical diagnosis.", ln=1, align="C")
+
+    out = pdf.output(dest='S')
+    if isinstance(out, str):
+        pdf_bytes = out.encode('latin-1')
+    else:
+        pdf_bytes = bytes(out)
+    
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"intake_form_{session_id[:8]}.pdf"
     )
+
+@app.route("/api/intake/<session_id>/email", methods=["POST"])
+def email_intake(session_id):
+    """Email the completed conversational intake form."""
+    data = request.get_json(silent=True) or {}
+    doctor_email = data.get("doctor_email")
+    if not doctor_email:
+        return jsonify({"error": "Doctor email is required."}), 400
+
+    session = intake_sessions.get(session_id)
+    form = None
+    if session and session.get("complete"):
+        form = session.get("form")
+    if not form:
+        return jsonify({"error": "Intake form not found or not complete."}), 404
+
+    # Build plain-text email body directly — no LangChain needed
+    subject = f"Patient Intake Summary - {form.get('timestamp', 'N/A')}"
+    body_lines = [
+        "PATIENT INTAKE SUMMARY",
+        "=" * 40,
+        f"Date: {form.get('timestamp', 'N/A')}",
+        "",
+        f"Chief Complaint: {form.get('chief_complaint', 'N/A')}",
+        f"Demographics: {form.get('demographics', 'N/A')}",
+        f"Emergency:    {form.get('emergency_contact', 'N/A')}",
+        f"History:      {form.get('history', 'N/A')}",
+        f"Family Hist:  {form.get('family_history', 'N/A')}",
+        f"Lifestyle:    {form.get('lifestyle', 'N/A')}",
+        f"Activity:     {form.get('activity', 'N/A')}",
+        f"Medications:  {form.get('medications', 'N/A')}",
+        f"Objectives:   {form.get('objectives', 'N/A')}",
+        "",
+        "=" * 40,
+        "Generated by MedAssist Patient Intake System",
+        "This is not a medical diagnosis.",
+    ]
+    body = "\n".join(body_lines)
+
+    from pipeline.email_sender import send_email
+    success = send_email(
+        receiver_email=doctor_email,
+        subject=subject,
+        content=body
+    )
+
+    if success:
+        return jsonify({"message": "Intake emailed successfully."}), 200
+    else:
+        return jsonify({"error": "Failed to send email. Check your RESEND_API_KEY and ensure you are sending to the verified account email."}), 500
+
 
 
 @app.route("/api/intake/<session_id>/json", methods=["GET"])
@@ -542,6 +660,17 @@ def chat():
 
         user_message = (data.get("message") or "").strip()
         uploaded_document_id = data.get("uploaded_document_id")
+        patient_id = data.get("patient_id")
+        
+        intake_form = None
+        if patient_id:
+            patient_file = INTAKE_DIR / f"{patient_id}.json"
+            if patient_file.exists():
+                try:
+                    with open(patient_file, "r") as f:
+                        intake_form = json.load(f)
+                except Exception as e:
+                    print(f"Failed to load patient history for chat context: {e}")
 
         if not user_message:
             return jsonify({"error": "Message is required."}), 400
@@ -559,6 +688,7 @@ def chat():
             user_message=user_message,
             conversation_id=data.get("conversation_id"),
             uploaded_document_id=uploaded_document_id,
+            intake_form=intake_form,
         )
 
         return jsonify({
