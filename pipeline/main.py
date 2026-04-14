@@ -5,6 +5,7 @@ from langgraph.graph import StateGraph, END
 from pipeline.retriever import retrieve_chunks
 from pipeline.generator import generate_answer, format_chunks_as_context, get_llm
 from pipeline.prompts import intent_prompt
+from pipeline.agents.scheduling_agent import is_scheduling_request
 
 
 # ── Agent state ───────────────────────────────────────────────────────
@@ -26,6 +27,10 @@ class AgentState(TypedDict, total=False):
 def classify_intent(state: AgentState) -> dict:
     """Classify the user message into an intent category."""
     query = state["user_query"]
+
+    # Fast keyword check for scheduling — avoid LLM call
+    if is_scheduling_request(query):
+        return {"intent": "appointment"}
 
     try:
         client = get_llm()
@@ -74,6 +79,19 @@ def generate(state: AgentState) -> dict:
     return {"generated_answer": answer, "emergency_flag": emergency}
 
 
+def handle_scheduling(state: AgentState) -> dict:
+    """Respond to scheduling requests by directing patient to the booking form."""
+    return {
+        "generated_answer": (
+            "I can help you book an appointment! Please use the **Book Appointment** "
+            "form in the panel on the right. Fill in your name, email, preferred date "
+            "and time, and reason for visit — I'll get that scheduled for you."
+        ),
+        "retrieved_chunks": [],
+        "emergency_flag": False,
+    }
+
+
 def handle_greeting(state: AgentState) -> dict:
     """Respond to greetings without hitting the retrieval pipeline."""
     return {
@@ -110,8 +128,8 @@ def route_by_intent(state: AgentState) -> str:
     intent = state.get("intent", "question")
     if intent == "greeting":
         return "handle_greeting"
-    # "question", "document", "other" all go through retrieval for now.
-    # Future phases add dedicated document and appointment branches.
+    if intent == "appointment":
+        return "handle_scheduling"
     return "retrieve"
 
 
@@ -124,6 +142,7 @@ def build_graph() -> StateGraph:
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
     graph.add_node("handle_greeting", handle_greeting)
+    graph.add_node("handle_scheduling", handle_scheduling)
     graph.add_node("format_response", format_response)
 
     graph.set_entry_point("classify_intent")
@@ -133,6 +152,7 @@ def build_graph() -> StateGraph:
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", "format_response")
     graph.add_edge("handle_greeting", "format_response")
+    graph.add_edge("handle_scheduling", "format_response")
     graph.add_edge("format_response", END)
 
     return graph
