@@ -43,10 +43,7 @@ BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
 UPLOAD_DIR = BASE_DIR / "uploads"
 
-INTAKE_DIR = BASE_DIR / "intake_forms"
-
 UPLOAD_DIR.mkdir(exist_ok=True)
-INTAKE_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {
     "pdf", "txt", "doc", "docx", "png", "jpg", "jpeg"
@@ -61,7 +58,6 @@ app = Flask(
 )
 
 # simple in-memory stores for local dev / prototype
-intake_sessions = {}
 doctor_sessions = {}  # session_id -> {case, messages, session_complete}
 
 
@@ -271,9 +267,10 @@ def intake():
         user_message = data.get("message")  # None on first call to start the flow
 
         # Load or create session
-        if session_id and session_id in intake_sessions:
-            session = intake_sessions[session_id]
-        else:
+        session = None
+        if session_id:
+            session = db.load_intake_session(session_id)
+        if not session:
             session_id = str(uuid.uuid4())
             session = {
                 "step": "greeting",
@@ -290,11 +287,7 @@ def intake():
                 user_message = None
 
         result = run_intake_step(session, user_message)
-        intake_sessions[session_id] = result
-
-        # Save completed form to disk
-        if result.get("complete") and result.get("form"):
-            _save_intake_form(session_id, result["form"])
+        db.save_intake_session(session_id, result)
 
         return jsonify({
             "intake_session_id": session_id,
@@ -314,13 +307,6 @@ def intake():
             "error": "Intake processing failed.",
             "details": str(e)
         }), 500
-
-
-def _save_intake_form(session_id: str, form: dict):
-    """Save the completed intake form as JSON to disk."""
-    json_path = INTAKE_DIR / f"{session_id}.json"
-    with open(json_path, "w") as f:
-        json.dump(form, f, indent=2)
 
 
 def _format_intake_text(form: dict) -> str:
@@ -400,17 +386,10 @@ def _format_intake_text(form: dict) -> str:
 @app.route("/api/intake/<session_id>/download", methods=["GET"])
 def download_intake(session_id):
     """Download the completed intake form as a PDF file."""
-    session = intake_sessions.get(session_id)
     form = None
-
+    session = db.load_intake_session(session_id)
     if session and session.get("complete"):
         form = session.get("form")
-
-    if not form:
-        json_path = INTAKE_DIR / f"{session_id}.json"
-        if json_path.exists():
-            with open(json_path) as f:
-                form = json.load(f)
 
     if not form:
         return jsonify({"error": "Intake form not found or not yet complete."}), 404
@@ -475,7 +454,7 @@ def email_intake(session_id):
     if not doctor_email:
         return jsonify({"error": "Doctor email is required."}), 400
 
-    session = intake_sessions.get(session_id)
+    session = db.load_intake_session(session_id)
     form = None
     if session and session.get("complete"):
         form = session.get("form")
@@ -522,17 +501,10 @@ def email_intake(session_id):
 @app.route("/api/intake/<session_id>/json", methods=["GET"])
 def get_intake_json(session_id):
     """Get the completed intake form as JSON (for future agent use)."""
-    session = intake_sessions.get(session_id)
     form = None
-
+    session = db.load_intake_session(session_id)
     if session and session.get("complete"):
         form = session.get("form")
-
-    if not form:
-        json_path = INTAKE_DIR / f"{session_id}.json"
-        if json_path.exists():
-            with open(json_path) as f:
-                form = json.load(f)
 
     if not form:
         return jsonify({"error": "Intake form not found or not yet complete."}), 404
