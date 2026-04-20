@@ -32,16 +32,21 @@ def get_llm():
 
 
 def format_chunks_as_context(chunks: list[dict]) -> str:
-    """Turn retrieved chunks into a numbered source block for the prompt."""
+    """Turn retrieved chunks into a sourced block for the prompt."""
     if not chunks:
         return "No relevant sources found."
 
     parts = []
-    for i, chunk in enumerate(chunks, start=1):
+    for chunk in chunks:
         text = chunk.get("text", "").strip()
+        source_raw = chunk.get("source", "Unknown Document")
+        
+        # Clean up filename (e.g. "The_Merck_Manual...pdf" -> "The Merck Manual...")
+        source_name = source_raw.replace("_", " ").replace(".pdf", "").replace(".txt", "").strip()
+        
         score = chunk.get("score")
         score_str = f" (relevance: {score:.4f})" if score is not None else ""
-        parts.append(f"Source {i}{score_str}:\n{text}")
+        parts.append(f"{source_name}{score_str}\nContent:\n{text}")
     return "\n\n".join(parts)
 
 

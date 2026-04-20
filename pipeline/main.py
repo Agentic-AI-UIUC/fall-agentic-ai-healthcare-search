@@ -4,7 +4,8 @@ from langgraph.graph import StateGraph, END
 
 from pipeline.retriever import retrieve_chunks
 from pipeline.generator import generate_answer, format_chunks_as_context, get_llm
-from pipeline.prompts import intent_prompt
+from pipeline.prompts import intent_prompt, QUERY_REWRITE_PROMPT
+import json
 
 
 # ── Agent state ───────────────────────────────────────────────────────
@@ -20,6 +21,8 @@ class AgentState(TypedDict, total=False):
     emergency_flag: bool
     app_mode: str  # "patient" | "doctor" — informational, patient graph ignores doctor mode
     intake_form: dict | None
+    rewritten_query: str
+    source_filter: str | None
 
 
 # ── Graph nodes ───────────────────────────────────────────────────────
@@ -49,9 +52,38 @@ def classify_intent(state: AgentState) -> dict:
         return {"intent": "question"}
 
 
+def rewrite_query(state: AgentState) -> dict:
+    """Use the LLM to translate layman queries to clinical terms and extract source filters."""
+    query = state["user_query"]
+    
+    try:
+        client = get_llm()
+        prompt_str = QUERY_REWRITE_PROMPT.format(query=query)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt_str}],
+            temperature=0,
+            max_tokens=150,
+            response_format={"type": "json_object"}
+        )
+        raw = response.choices[0].message.content or "{}"
+        parsed = json.loads(raw)
+        
+        return {
+            "rewritten_query": parsed.get("rewritten_query", query),
+            "source_filter": parsed.get("source_filter")
+        }
+    except Exception:
+        # Fallback to the original query if rewrite fails
+        return {"rewritten_query": query, "source_filter": None}
+
+
 def retrieve(state: AgentState) -> dict:
-    """Embed the user query and retrieve relevant chunks from Qdrant."""
-    chunks = retrieve_chunks(state["user_query"], top_k=5)
+    """Embed the expanded query and retrieve relevant chunks from Qdrant."""
+    active_query = state.get("rewritten_query", state["user_query"])
+    source_filter = state.get("source_filter")
+    
+    chunks = retrieve_chunks(active_query, top_k=5, source_filter=source_filter)
     return {"retrieved_chunks": chunks}
 
 
@@ -93,12 +125,16 @@ def format_response(state: AgentState) -> dict:
     """Convert retrieved chunks into frontend source cards."""
     chunks = state.get("retrieved_chunks", [])
     sources = []
-    for i, chunk in enumerate(chunks, start=1):
+    for chunk in chunks:
         text = chunk.get("text", "") or ""
         score = chunk.get("score")
-        chunk_id = chunk.get("id")
+        
+        # Clean up filename for the UI explicitly
+        source_raw = chunk.get("source", "Unknown Document")
+        source_name = source_raw.replace("_", " ").replace(".pdf", "").replace(".txt", "").strip()
+
         sources.append({
-            "title": f"Retrieved Chunk {i}" + (f" (ID {chunk_id})" if chunk_id is not None else ""),
+            "title": source_name,
             "snippet": text[:350].strip(),
             "score": round(float(score), 4) if score is not None else None,
         })
@@ -112,9 +148,8 @@ def route_by_intent(state: AgentState) -> str:
     intent = state.get("intent", "question")
     if intent == "greeting":
         return "handle_greeting"
-    # "question", "document", "other" all go through retrieval for now.
-    # Future phases add dedicated document and appointment branches.
-    return "retrieve"
+    # Route to query expansion before retrieval
+    return "rewrite_query"
 
 
 # ── Build the graph ───────────────────────────────────────────────────
@@ -123,6 +158,7 @@ def build_graph() -> StateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node("classify_intent", classify_intent)
+    graph.add_node("rewrite_query", rewrite_query)
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
     graph.add_node("handle_greeting", handle_greeting)
@@ -132,6 +168,7 @@ def build_graph() -> StateGraph:
 
     graph.add_conditional_edges("classify_intent", route_by_intent)
 
+    graph.add_edge("rewrite_query", "retrieve")
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", "format_response")
     graph.add_edge("handle_greeting", "format_response")

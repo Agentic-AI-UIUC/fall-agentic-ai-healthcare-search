@@ -16,7 +16,9 @@ from pathlib import Path
 
 import json
 
-from flask import Flask, jsonify, request, send_from_directory, Response, session
+import io
+from flask import Flask, jsonify, request, send_from_directory, Response, session, send_file
+from fpdf import FPDF
 from dotenv import load_dotenv
 load_dotenv()  # Loads GROQ_API_KEY, SENDER_EMAIL, SENDER_PASSWORD from .env
 
@@ -303,12 +305,12 @@ def doctor_chat():
         if not doctor_message:
             return jsonify({"error": "Message is required."}), 400
 
-        session = doctor_sessions[session_id]
+        doc_session = doctor_sessions[session_id]
 
-        if session.get("session_complete"):
+        if doc_session.get("session_complete"):
             return jsonify({"error": "Session is already complete. Start a new case."}), 400
 
-        result = run_patient_sim(session, doctor_message)
+        result = run_patient_sim(doc_session, doctor_message)
         doctor_sessions[session_id] = result["session"]
 
         return jsonify({
@@ -365,16 +367,20 @@ def intake():
     try:
         data = request.get_json(silent=True) or {}
 
+        user_id = session.get("user_id")
+        if not user_id:
+            return jsonify({"error": "Unauthorized. Please log in to start intake."}), 401
+
         session_id = data.get("intake_session_id")
-        patient_id = data.get("patient_id")
+        patient_id = f"user_{user_id}"
         user_message = data.get("message")  # None on first call to start the flow
 
         # Load or create session
         if session_id and session_id in intake_sessions:
-            session = intake_sessions[session_id]
+            current_intake = intake_sessions[session_id]
         else:
             session_id = str(uuid.uuid4())
-            session = {
+            current_intake = {
                 "step": "greeting",
                 "form": None,
                 "messages": [],
@@ -390,7 +396,7 @@ def intake():
                             past_form = json.load(f)
                         past_form["chief_complaint"] = ""
                         past_form["timestamp"] = ""
-                        session["form"] = past_form
+                        current_intake["form"] = past_form
                     except Exception as e:
                         print(f"Failed to load patient history: {e}")
 
@@ -400,7 +406,7 @@ def intake():
             if not user_message:
                 user_message = None
 
-        result = run_intake_step(session, user_message)
+        result = run_intake_step(current_intake, user_message)
         intake_sessions[session_id] = result
 
         # Save completed form to disk
@@ -513,11 +519,11 @@ def _format_intake_text(form: dict) -> str:
 @app.route("/api/intake/<session_id>/download", methods=["GET"])
 def download_intake(session_id):
     """Download the completed intake form as a PDF file."""
-    session = intake_sessions.get(session_id)
+    current_intake = intake_sessions.get(session_id)
     form = None
 
-    if session and session.get("complete"):
-        form = session.get("form")
+    if current_intake and current_intake.get("complete"):
+        form = current_intake.get("form")
 
     if not form:
         json_path = INTAKE_DIR / f"{session_id}.json"
@@ -588,10 +594,10 @@ def email_intake(session_id):
     if not doctor_email:
         return jsonify({"error": "Doctor email is required."}), 400
 
-    session = intake_sessions.get(session_id)
+    current_intake = intake_sessions.get(session_id)
     form = None
-    if session and session.get("complete"):
-        form = session.get("form")
+    if current_intake and current_intake.get("complete"):
+        form = current_intake.get("form")
     if not form:
         return jsonify({"error": "Intake form not found or not complete."}), 404
 
@@ -635,11 +641,11 @@ def email_intake(session_id):
 @app.route("/api/intake/<session_id>/json", methods=["GET"])
 def get_intake_json(session_id):
     """Get the completed intake form as JSON (for future agent use)."""
-    session = intake_sessions.get(session_id)
+    current_intake = intake_sessions.get(session_id)
     form = None
 
-    if session and session.get("complete"):
-        form = session.get("form")
+    if current_intake and current_intake.get("complete"):
+        form = current_intake.get("form")
 
     if not form:
         json_path = INTAKE_DIR / f"{session_id}.json"
@@ -658,9 +664,13 @@ def chat():
     try:
         data = request.get_json(silent=True) or {}
 
+        user_id = session.get("user_id")
+        if not user_id:
+            return jsonify({"error": "Unauthorized. Please log in to chat."}), 401
+
         user_message = (data.get("message") or "").strip()
         uploaded_document_id = data.get("uploaded_document_id")
-        patient_id = data.get("patient_id")
+        patient_id = f"user_{user_id}"
         
         intake_form = None
         if patient_id:
