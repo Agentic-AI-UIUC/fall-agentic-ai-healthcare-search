@@ -791,6 +791,7 @@ function loadState() {
     appMode: "patient",
     doctorSessionId: null,
     activeCase: null,
+    sessionComplete: false,
     patientId: crypto.randomUUID(),
   };
 
@@ -1351,15 +1352,18 @@ async function loadNewCase() {
   elements.newCaseBtn.disabled = true;
   elements.newCaseBtn.textContent = "Loading patient...";
   doctorDifferential = [];
+  state.sessionComplete = false;
   elements.diffList.innerHTML = "";
-  elements.quizContainer.innerHTML = "";
+  elements.quizContainer.innerHTML = `<p class="tab-desc">Submit your diagnosis to unlock the quiz.</p>`;
   elements.evaluationCard.innerHTML = `<p class="tab-desc">Submit your diagnosis to unlock results and teaching points.</p>`;
+
+  const difficulty = document.getElementById("difficultySelect")?.value || "beginner";
 
   try {
     const resp = await fetch(API.doctorSession, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ difficulty }),
     });
 
     if (!resp.ok) throw new Error("Failed to generate case");
@@ -1440,6 +1444,7 @@ async function handleDoctorSend() {
     if (data.revealed) updateProgressDots(data.revealed);
 
     if (data.session_complete && data.evaluation) {
+      state.sessionComplete = true;
       renderEvaluationCard(data.evaluation);
       switchDoctorTab("teaching");
     }
@@ -1547,6 +1552,11 @@ async function checkDifferentialHypotheses() {
 
 async function loadQuiz() {
   if (!state.doctorSessionId) return;
+
+  if (!state.sessionComplete) {
+    elements.quizContainer.innerHTML = `<p class="tab-desc">Submit your diagnosis first to unlock the quiz.</p>`;
+    return;
+  }
 
   elements.loadQuizBtn.disabled = true;
   elements.loadQuizBtn.textContent = "Generating...";

@@ -233,8 +233,13 @@
     <aside class="doctor-panel hidden" id="doctorPanel">
       <div class="review-header">
         <h3>Practice Case</h3>
-        <div class="doctor-panel-actions" style="margin-top:8px">
-          <button id="newCaseBtn" class="primary-btn full-width">New Case</button>
+        <div class="doctor-panel-actions" style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <select id="difficultySelect" class="difficulty-select">
+            <option value="beginner">Beginner</option>
+            <option value="intermediate">Intermediate</option>
+            <option value="advanced">Advanced</option>
+          </select>
+          <button id="newCaseBtn" class="primary-btn" style="flex:1">New Case</button>
         </div>
       </div>
 
@@ -263,7 +268,7 @@
           <div class="breakdown-grid">
             <button class="doctor-chip" data-prompt="What's been bothering you?">Chief Complaint</button>
             <button class="doctor-chip" data-prompt="Tell me about your medical history — past illnesses, surgeries, and current medications.">Medical History</button>
-            <button class="doctor-chip" data-prompt="I'd like to examine you now. Can you sit up for me?">Physical Exam</button>
+            <button class="doctor-chip" data-prompt="I'd like to perform a physical examination. Please describe the relevant findings — vitals, appearance, and anything notable on exam.">Physical Exam</button>
             <button class="doctor-chip" data-prompt="I'm going to order some blood work — a CBC, a complete metabolic panel, and a chest X-ray.">Order Labs</button>
           </div>
           <button id="submitDiagnosisBtn" class="ghost-btn full-width" style="margin-top:12px">Submit Diagnosis...</button>

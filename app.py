@@ -264,8 +264,9 @@ def doctor_new_session():
     try:
         data = request.get_json(silent=True) or {}
         seed_query = data.get("seed_query")  # optional speciality hint
+        difficulty = data.get("difficulty", "beginner")
 
-        case = generate_case_from_chunks(seed_query)
+        case = generate_case_from_chunks(seed_query, difficulty=difficulty)
 
         session_id = str(uuid.uuid4())
         doctor_sessions[session_id] = new_session(case)

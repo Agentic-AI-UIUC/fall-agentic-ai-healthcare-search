@@ -1417,6 +1417,17 @@ button {
   transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
 
+.difficulty-select {
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  min-width: 110px;
+}
+
 .doctor-toggle-btn.doctor-mode-active {
   background: #1e4d75;
   color: #fff;
