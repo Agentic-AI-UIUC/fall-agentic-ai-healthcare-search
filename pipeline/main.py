@@ -4,8 +4,8 @@ from langgraph.graph import StateGraph, END
 
 from pipeline.retriever import retrieve_chunks
 from pipeline.generator import generate_answer, format_chunks_as_context, get_llm
-from pipeline.prompts import intent_prompt
-from pipeline.agents.scheduling_agent import is_scheduling_request
+from pipeline.prompts import intent_prompt, QUERY_REWRITE_PROMPT
+import json
 
 
 # ── Agent state ───────────────────────────────────────────────────────
@@ -20,6 +20,9 @@ class AgentState(TypedDict, total=False):
     sources: list[dict]
     emergency_flag: bool
     app_mode: str  # "patient" | "doctor" — informational, patient graph ignores doctor mode
+    intake_form: dict | None
+    rewritten_query: str
+    source_filter: str | None
 
 
 # ── Graph nodes ───────────────────────────────────────────────────────
@@ -27,10 +30,6 @@ class AgentState(TypedDict, total=False):
 def classify_intent(state: AgentState) -> dict:
     """Classify the user message into an intent category."""
     query = state["user_query"]
-
-    # Fast keyword check for scheduling — avoid LLM call
-    if is_scheduling_request(query):
-        return {"intent": "appointment"}
 
     try:
         client = get_llm()
@@ -53,9 +52,38 @@ def classify_intent(state: AgentState) -> dict:
         return {"intent": "question"}
 
 
+def rewrite_query(state: AgentState) -> dict:
+    """Use the LLM to translate layman queries to clinical terms and extract source filters."""
+    query = state["user_query"]
+    
+    try:
+        client = get_llm()
+        prompt_str = QUERY_REWRITE_PROMPT.format(query=query)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt_str}],
+            temperature=0,
+            max_tokens=150,
+            response_format={"type": "json_object"}
+        )
+        raw = response.choices[0].message.content or "{}"
+        parsed = json.loads(raw)
+        
+        return {
+            "rewritten_query": parsed.get("rewritten_query", query),
+            "source_filter": parsed.get("source_filter")
+        }
+    except Exception:
+        # Fallback to the original query if rewrite fails
+        return {"rewritten_query": query, "source_filter": None}
+
+
 def retrieve(state: AgentState) -> dict:
-    """Embed the user query and retrieve relevant chunks from Qdrant."""
-    chunks = retrieve_chunks(state["user_query"], top_k=5)
+    """Embed the expanded query and retrieve relevant chunks from Qdrant."""
+    active_query = state.get("rewritten_query", state["user_query"])
+    source_filter = state.get("source_filter")
+    
+    chunks = retrieve_chunks(active_query, top_k=5, source_filter=source_filter)
     return {"retrieved_chunks": chunks}
 
 
@@ -65,6 +93,7 @@ def generate(state: AgentState) -> dict:
         query=state["user_query"],
         chunks=state.get("retrieved_chunks", []),
         conversation_history=state.get("conversation_history"),
+        intake_form=state.get("intake_form"),
     )
 
     # Simple emergency keyword check
@@ -77,19 +106,6 @@ def generate(state: AgentState) -> dict:
     emergency = any(kw in query_lower for kw in emergency_keywords)
 
     return {"generated_answer": answer, "emergency_flag": emergency}
-
-
-def handle_scheduling(state: AgentState) -> dict:
-    """Respond to scheduling requests by directing patient to the booking form."""
-    return {
-        "generated_answer": (
-            "I can help you book an appointment! Please use the **Book Appointment** "
-            "form in the panel on the right. Fill in your name, email, preferred date "
-            "and time, and reason for visit — I'll get that scheduled for you."
-        ),
-        "retrieved_chunks": [],
-        "emergency_flag": False,
-    }
 
 
 def handle_greeting(state: AgentState) -> dict:
@@ -109,12 +125,16 @@ def format_response(state: AgentState) -> dict:
     """Convert retrieved chunks into frontend source cards."""
     chunks = state.get("retrieved_chunks", [])
     sources = []
-    for i, chunk in enumerate(chunks, start=1):
+    for chunk in chunks:
         text = chunk.get("text", "") or ""
         score = chunk.get("score")
-        chunk_id = chunk.get("id")
+        
+        # Clean up filename for the UI explicitly
+        source_raw = chunk.get("source", "Unknown Document")
+        source_name = source_raw.replace("_", " ").replace(".pdf", "").replace(".txt", "").strip()
+
         sources.append({
-            "title": f"Retrieved Chunk {i}" + (f" (ID {chunk_id})" if chunk_id is not None else ""),
+            "title": source_name,
             "snippet": text[:350].strip(),
             "score": round(float(score), 4) if score is not None else None,
         })
@@ -128,9 +148,8 @@ def route_by_intent(state: AgentState) -> str:
     intent = state.get("intent", "question")
     if intent == "greeting":
         return "handle_greeting"
-    if intent == "appointment":
-        return "handle_scheduling"
-    return "retrieve"
+    # Route to query expansion before retrieval
+    return "rewrite_query"
 
 
 # ── Build the graph ───────────────────────────────────────────────────
@@ -139,20 +158,20 @@ def build_graph() -> StateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node("classify_intent", classify_intent)
+    graph.add_node("rewrite_query", rewrite_query)
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
     graph.add_node("handle_greeting", handle_greeting)
-    graph.add_node("handle_scheduling", handle_scheduling)
     graph.add_node("format_response", format_response)
 
     graph.set_entry_point("classify_intent")
 
     graph.add_conditional_edges("classify_intent", route_by_intent)
 
+    graph.add_edge("rewrite_query", "retrieve")
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", "format_response")
     graph.add_edge("handle_greeting", "format_response")
-    graph.add_edge("handle_scheduling", "format_response")
     graph.add_edge("format_response", END)
 
     return graph
@@ -175,6 +194,7 @@ def run_agent(
     conversation_id: str | None = None,
     uploaded_document_id: str | None = None,
     conversation_history: list[dict] | None = None,
+    intake_form: dict | None = None,
 ) -> dict:
     """
     Run the full agent pipeline and return a result dict with:
@@ -188,6 +208,7 @@ def run_agent(
         "user_query": user_message,
         "conversation_history": conversation_history or [],
         "uploaded_document_id": uploaded_document_id,
+        "intake_form": intake_form,
     })
 
     return {

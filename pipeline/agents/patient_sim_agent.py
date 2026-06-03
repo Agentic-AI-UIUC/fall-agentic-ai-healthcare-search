@@ -78,12 +78,31 @@ def _llm_call(system: str, user: str, temperature=0.7, max_tokens=400) -> str | 
 
 # ── Case generation ───────────────────────────────────────────────────
 
+_DIFFICULTY_INSTRUCTIONS = {
+    "beginner": (
+        "Use a classic, recognizable presentation. The history alone plus one key finding "
+        "should be enough to narrow the diagnosis. Minimal red herrings."
+    ),
+    "intermediate": (
+        "Include one atypical feature that could mislead. The trainee should need to gather "
+        "history, perform exam, AND order at least one lab/imaging result to confirm."
+    ),
+    "advanced": (
+        "Use an unusual presentation or rare complication. Add multiple plausible red herrings. "
+        "The correct diagnosis requires synthesizing history, exam findings, and labs together — "
+        "no single finding should be decisive on its own."
+    ),
+}
+
 CASE_GEN_PROMPT = """\
 You are a medical educator creating a patient simulation case for clinical training.
 Using the medical knowledge below as your clinical foundation, generate a realistic patient case.
 
 Medical knowledge:
 {context}
+
+Difficulty level: {difficulty}
+Difficulty guidance: {difficulty_instructions}
 
 Return ONLY a valid JSON object with exactly these fields — no extra text, no markdown fences:
 {{
@@ -95,14 +114,14 @@ Return ONLY a valid JSON object with exactly these fields — no extra text, no 
   "diagnosis": "The single correct diagnosis (NEVER reveal this to the doctor)",
   "key_findings": ["finding 1 that points to the diagnosis", "finding 2", "finding 3"],
   "differential": ["correct diagnosis", "plausible alternative 1", "plausible alternative 2", "less likely alternative"],
-  "difficulty": "beginner"
+  "difficulty": "{difficulty}"
 }}
 
 Make it clinically realistic with 2-4 distinct clues pointing toward the diagnosis.
 The patient should not have an obvious textbook presentation — add at least one mildly atypical feature."""
 
 
-def generate_case_from_chunks(seed_query: str | None = None) -> dict:
+def generate_case_from_chunks(seed_query: str | None = None, difficulty: str = "beginner") -> dict:
     """Retrieve medical knowledge chunks from Qdrant and synthesize a patient case."""
     query = seed_query or random.choice(SEED_QUERIES)
     try:
@@ -123,10 +142,17 @@ def generate_case_from_chunks(seed_query: str | None = None) -> dict:
     if not client:
         return _fallback_case()
 
+    difficulty = difficulty if difficulty in _DIFFICULTY_INSTRUCTIONS else "beginner"
+    prompt = CASE_GEN_PROMPT.format(
+        context=context,
+        difficulty=difficulty,
+        difficulty_instructions=_DIFFICULTY_INSTRUCTIONS[difficulty],
+    )
+
     try:
         resp = client.chat.completions.create(
             model=MODEL,
-            messages=[{"role": "user", "content": CASE_GEN_PROMPT.format(context=context)}],
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.8,
             max_tokens=900,
         )
@@ -226,8 +252,8 @@ YOUR PATIENT PROFILE:
 Chief complaint: {chief_complaint}
 Your background: {background}
 Your symptoms: {symptom_details}
-Physical exam findings (reveal only if the doctor asks to examine you): {exam_findings}
-Lab/imaging results (reveal only if the doctor orders those specific tests): {lab_results}
+{exam_section}
+{labs_section}
 
 STRICT RULES:
 1. Answer ONLY what the doctor directly asks. Never volunteer extra information.
@@ -243,18 +269,29 @@ Conversation so far:
 {conversation_history}"""
 
 
-def _generate_patient_response(case, messages, action_type, doctor_query):
+def _generate_patient_response(case, messages, action_type, doctor_query, revealed=None):
+    revealed = revealed or {}
     convo = "\n".join(
         f"{'Doctor' if m['role'] == 'doctor' else 'You (patient)'}: {m['content']}"
         for m in messages[-12:]
     )
 
+    if revealed.get("exam"):
+        exam_section = f"Physical exam findings (the doctor has examined you — share these): {case.get('exam_findings', '')}"
+    else:
+        exam_section = "Physical exam findings: [NOT EXAMINED YET — do NOT mention any exam findings, vitals, or physical signs under any circumstances, even if directly asked]"
+
+    if revealed.get("labs"):
+        labs_section = f"Lab/imaging results (tests have been ordered — share these): {case.get('lab_results', '')}"
+    else:
+        labs_section = "Lab/imaging results: [NOT ORDERED YET — do NOT mention any lab values, imaging results, or test findings under any circumstances]"
+
     system = PATIENT_ROLE_PROMPT.format(
         chief_complaint=case.get("chief_complaint", ""),
         background=case.get("background", ""),
         symptom_details=case.get("symptom_details", ""),
-        exam_findings=case.get("exam_findings", ""),
-        lab_results=case.get("lab_results", ""),
+        exam_section=exam_section,
+        labs_section=labs_section,
         conversation_history=convo or "(start of conversation)",
     )
 
@@ -262,6 +299,48 @@ def _generate_patient_response(case, messages, action_type, doctor_query):
     if result:
         return result
     return _fallback_patient_response(case, action_type)
+
+
+_HINT_PROMPT = """\
+You are a medical education coach. A trainee doctor is working through a patient simulation.
+Review what the doctor has explored so far and give a short, specific hint about what they are missing
+or should focus on next. Do NOT reveal the diagnosis. Max 2 sentences.
+
+Case chief complaint: {chief_complaint}
+What has been revealed so far: history={history}, physical exam={exam}, labs/imaging={labs}
+Conversation so far:
+{conversation}"""
+
+
+def _generate_hint(case: dict, messages: list, revealed: dict) -> str:
+    convo = "\n".join(
+        f"{'Doctor' if m['role'] == 'doctor' else 'Patient'}: {m['content']}"
+        for m in messages[-10:]
+    )
+    result = _llm_call(
+        "You are a concise medical education coach. Never reveal the diagnosis.",
+        _HINT_PROMPT.format(
+            chief_complaint=case.get("chief_complaint", ""),
+            history=revealed.get("history", False),
+            exam=revealed.get("exam", False),
+            labs=revealed.get("labs", False),
+            conversation=convo or "(no conversation yet)",
+        ),
+        temperature=0.5,
+        max_tokens=120,
+    )
+    if result:
+        return f"[Hint] {result}"
+    unexplored = [
+        label for flag, label in [
+            (not revealed.get("exam"), "perform a physical exam"),
+            (not revealed.get("labs"), "order relevant labs or imaging"),
+            (not revealed.get("history"), "take a full history"),
+        ] if flag
+    ]
+    if unexplored:
+        return f"[Hint] You haven't yet: {', '.join(unexplored)}. Try those before submitting a diagnosis."
+    return f"[Hint] Consider the most common conditions causing: {case.get('chief_complaint', 'these symptoms')}."
 
 
 def _fallback_patient_response(case, action_type):
@@ -523,12 +602,9 @@ def run_patient_sim(session: dict, doctor_message: str) -> dict:
                 f"[Session complete] Not quite. The diagnosis was {evaluation['correct_diagnosis']}."
             )
     elif action_type == "request_hint":
-        response = (
-            f"[Hint] Focus on the chief complaint and any unusual features. "
-            f"Consider the most common conditions that cause: {case.get('chief_complaint', 'these symptoms')}."
-        )
+        response = _generate_hint(case, messages[:-1], revealed)
     else:
-        response = _generate_patient_response(case, messages[:-1], action_type, doctor_message)
+        response = _generate_patient_response(case, messages[:-1], action_type, doctor_message, revealed)
 
     messages.append({"role": "patient", "content": response})
 

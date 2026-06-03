@@ -19,7 +19,5 @@ data_collection/processed/*.json
 data_collection/processed/*.txt
 data_collection/knowledge_base.json
 
-docs/superpowers
-db/app.db
-db/app.db-shm
-db/app.db-wal
+# User database
+users.db

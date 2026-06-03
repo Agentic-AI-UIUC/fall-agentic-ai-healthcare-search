@@ -11,7 +11,14 @@ const API = {
   doctorChat: "/api/doctor/chat",
   doctorQuiz: "/api/doctor/quiz",
   doctorDiff: "/api/doctor/differential",
+  authSignup: "/api/auth/signup",
+  authLogin: "/api/auth/login",
+  authLogout: "/api/auth/logout",
+  authMe: "/api/auth/me",
+  conversations: "/api/conversations",
 };
+
+let currentUser = null;
 
 let elements = {};
 let state = loadState();
@@ -69,6 +76,27 @@ document.addEventListener("DOMContentLoaded", () => {
     preMedicalForm: document.getElementById("preMedicalForm"),
     submitFormBtn: document.getElementById("submitFormBtn"),
     formStatus: document.getElementById("formStatus"),
+    // Auth
+    authModal: document.getElementById("authModal"),
+    closeAuthModal: document.getElementById("closeAuthModal"),
+    showLoginBtn: document.getElementById("showLoginBtn"),
+    showSignupBtn: document.getElementById("showSignupBtn"),
+    loginForm: document.getElementById("loginForm"),
+    signupForm: document.getElementById("signupForm"),
+    loginEmail: document.getElementById("loginEmail"),
+    loginPassword: document.getElementById("loginPassword"),
+    loginBtn: document.getElementById("loginBtn"),
+    loginError: document.getElementById("loginError"),
+    signupUsername: document.getElementById("signupUsername"),
+    signupEmail: document.getElementById("signupEmail"),
+    signupPassword: document.getElementById("signupPassword"),
+    signupBtn: document.getElementById("signupBtn"),
+    signupError: document.getElementById("signupError"),
+    switchToSignup: document.getElementById("switchToSignup"),
+    switchToLogin: document.getElementById("switchToLogin"),
+    userInfo: document.getElementById("userInfo"),
+    userDisplayName: document.getElementById("userDisplayName"),
+    logoutBtn: document.getElementById("logoutBtn"),
     // Doctor Practice Mode
     doctorModeToggle: document.getElementById("doctorModeToggle"),
     doctorPanel: document.getElementById("doctorPanel"),
@@ -94,7 +122,10 @@ document.addEventListener("DOMContentLoaded", () => {
 async function init() {
   bindEvents();
 
-  if (state.hasEnteredApp) {
+  // Check if user is already logged in
+  await checkAuthStatus();
+
+  if (state.hasEnteredApp && currentUser) {
     showMainApp();
   } else {
     showLanding();
@@ -104,6 +135,20 @@ async function init() {
 }
 
 function bindEvents() {
+  // Auth
+  elements.showLoginBtn.addEventListener("click", () => openAuthModal("login"));
+  elements.showSignupBtn.addEventListener("click", () => openAuthModal("signup"));
+  elements.closeAuthModal.addEventListener("click", closeAuthModalFn);
+  elements.switchToSignup.addEventListener("click", (e) => { e.preventDefault(); showAuthForm("signup"); });
+  elements.switchToLogin.addEventListener("click", (e) => { e.preventDefault(); showAuthForm("login"); });
+  elements.loginBtn.addEventListener("click", handleLogin);
+  elements.signupBtn.addEventListener("click", handleSignup);
+  elements.logoutBtn.addEventListener("click", handleLogout);
+
+  // Allow Enter key in auth forms
+  elements.loginPassword.addEventListener("keydown", (e) => { if (e.key === "Enter") handleLogin(); });
+  elements.signupPassword.addEventListener("keydown", (e) => { if (e.key === "Enter") handleSignup(); });
+
   // Landing
   elements.beginIntakeBtn.addEventListener("click", startIntake);
   elements.skipIntakeBtn.addEventListener("click", skipToApp);
@@ -230,6 +275,198 @@ function bindEvents() {
 }
 
 /* ============================
+   AUTH
+   ============================ */
+
+async function checkAuthStatus() {
+  try {
+    const res = await fetch(API.authMe);
+    const data = await res.json();
+    if (data.user) {
+      currentUser = data.user;
+      updateAuthUI();
+    }
+  } catch {
+    // not logged in
+  }
+}
+
+function openAuthModal(mode) {
+  elements.authModal.classList.remove("hidden");
+  showAuthForm(mode);
+}
+
+function closeAuthModalFn() {
+  elements.authModal.classList.add("hidden");
+  elements.loginError.classList.add("hidden");
+  elements.signupError.classList.add("hidden");
+}
+
+function showAuthForm(mode) {
+  if (mode === "signup") {
+    elements.loginForm.classList.add("hidden");
+    elements.signupForm.classList.remove("hidden");
+  } else {
+    elements.signupForm.classList.add("hidden");
+    elements.loginForm.classList.remove("hidden");
+  }
+  elements.loginError.classList.add("hidden");
+  elements.signupError.classList.add("hidden");
+}
+
+async function handleLogin() {
+  const email = elements.loginEmail.value.trim();
+  const password = elements.loginPassword.value;
+
+  if (!email || !password) {
+    showAuthError("loginError", "Please fill in all fields.");
+    return;
+  }
+
+  try {
+    elements.loginBtn.disabled = true;
+    elements.loginBtn.textContent = "Logging in...";
+    const res = await fetch(API.authLogin, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showAuthError("loginError", data.error || "Login failed.");
+      return;
+    }
+    currentUser = data.user;
+    updateAuthUI();
+    closeAuthModalFn();
+    await loadUserConversations();
+    state.hasEnteredApp = true;
+    saveState();
+    showMainApp();
+  } catch {
+    showAuthError("loginError", "Connection error. Please try again.");
+  } finally {
+    elements.loginBtn.disabled = false;
+    elements.loginBtn.textContent = "Log in";
+  }
+}
+
+async function handleSignup() {
+  const username = elements.signupUsername.value.trim();
+  const email = elements.signupEmail.value.trim();
+  const password = elements.signupPassword.value;
+
+  if (!username || !email || !password) {
+    showAuthError("signupError", "Please fill in all fields.");
+    return;
+  }
+  if (password.length < 6) {
+    showAuthError("signupError", "Password must be at least 6 characters.");
+    return;
+  }
+
+  try {
+    elements.signupBtn.disabled = true;
+    elements.signupBtn.textContent = "Creating account...";
+    const res = await fetch(API.authSignup, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showAuthError("signupError", data.error || "Signup failed.");
+      return;
+    }
+    currentUser = data.user;
+    updateAuthUI();
+    closeAuthModalFn();
+    state.hasEnteredApp = true;
+    saveState();
+    showMainApp();
+  } catch {
+    showAuthError("signupError", "Connection error. Please try again.");
+  } finally {
+    elements.signupBtn.disabled = false;
+    elements.signupBtn.textContent = "Create account";
+  }
+}
+
+async function handleLogout() {
+  try {
+    await fetch(API.authLogout, { method: "POST" });
+  } catch {
+    // proceed with local logout even if request fails
+  }
+  currentUser = null;
+  state.hasEnteredApp = false;
+  state.conversations = [];
+  state.currentConversationId = null;
+  saveState();
+  updateAuthUI();
+  showLanding();
+}
+
+function showAuthError(elementId, message) {
+  const el = elements[elementId];
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+
+function updateAuthUI() {
+  if (currentUser) {
+    elements.showLoginBtn.classList.add("hidden");
+    elements.showSignupBtn.classList.add("hidden");
+    elements.skipIntakeBtn.classList.remove("hidden");
+    elements.userInfo.classList.remove("hidden");
+    elements.userDisplayName.textContent = currentUser.username;
+  } else {
+    elements.showLoginBtn.classList.remove("hidden");
+    elements.showSignupBtn.classList.remove("hidden");
+    elements.skipIntakeBtn.classList.add("hidden");
+    elements.userInfo.classList.add("hidden");
+  }
+}
+
+async function loadUserConversations() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch(API.conversations);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.conversations && data.conversations.length > 0) {
+      state.conversations = data.conversations.map((c) => ({
+        id: c.id,
+        title: c.title,
+        createdAt: c.created_at,
+        messages: JSON.parse(c.messages || "[]"),
+      }));
+      state.currentConversationId = state.conversations[0].id;
+      saveState();
+    }
+  } catch {
+    // fall back to local state
+  }
+}
+
+async function syncConversation(convo) {
+  if (!currentUser || !convo) return;
+  try {
+    await fetch(API.conversations, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: convo.id,
+        title: convo.title,
+        messages: convo.messages,
+      }),
+    });
+  } catch {
+    // silent fail — local state is the source of truth
+  }
+}
+
+/* ============================
    PAGE NAVIGATION
    ============================ */
 
@@ -252,6 +489,10 @@ function showMainApp() {
 }
 
 function skipToApp() {
+  if (!currentUser) {
+    openAuthModal("login");
+    return;
+  }
   state.hasEnteredApp = true;
   saveState();
   showMainApp();
@@ -267,6 +508,10 @@ function goBackToLanding() {
    ============================ */
 
 async function startIntake() {
+  if (!currentUser) {
+    openAuthModal("signup");
+    return;
+  }
   // Switch landing page from hero to intake chat
   elements.landingHero.classList.add("hidden");
   elements.landingFooter.classList.add("hidden");
@@ -559,12 +804,15 @@ function loadState() {
     appMode: "patient",
     doctorSessionId: null,
     activeCase: null,
+    sessionComplete: false,
+    patientId: crypto.randomUUID(),
   };
 
   if (!raw) return defaults;
 
   try {
-    return { ...defaults, ...JSON.parse(raw) };
+    const loaded = JSON.parse(raw);
+    return { ...defaults, ...loaded };
   } catch {
     return defaults;
   }
@@ -572,6 +820,11 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  // Auto-sync current conversation to server if logged in
+  if (currentUser) {
+    const convo = getCurrentConversation();
+    if (convo) syncConversation(convo);
+  }
 }
 
 /* ============================
@@ -1201,15 +1454,18 @@ async function loadNewCase() {
   elements.newCaseBtn.disabled = true;
   elements.newCaseBtn.textContent = "Loading patient...";
   doctorDifferential = [];
+  state.sessionComplete = false;
   elements.diffList.innerHTML = "";
-  elements.quizContainer.innerHTML = "";
+  elements.quizContainer.innerHTML = `<p class="tab-desc">Submit your diagnosis to unlock the quiz.</p>`;
   elements.evaluationCard.innerHTML = `<p class="tab-desc">Submit your diagnosis to unlock results and teaching points.</p>`;
+
+  const difficulty = document.getElementById("difficultySelect")?.value || "beginner";
 
   try {
     const resp = await fetch(API.doctorSession, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ difficulty }),
     });
 
     if (!resp.ok) throw new Error("Failed to generate case");
@@ -1290,6 +1546,7 @@ async function handleDoctorSend() {
     if (data.revealed) updateProgressDots(data.revealed);
 
     if (data.session_complete && data.evaluation) {
+      state.sessionComplete = true;
       renderEvaluationCard(data.evaluation);
       switchDoctorTab("teaching");
     }
@@ -1397,6 +1654,11 @@ async function checkDifferentialHypotheses() {
 
 async function loadQuiz() {
   if (!state.doctorSessionId) return;
+
+  if (!state.sessionComplete) {
+    elements.quizContainer.innerHTML = `<p class="tab-desc">Submit your diagnosis first to unlock the quiz.</p>`;
+    return;
+  }
 
   elements.loadQuizBtn.disabled = true;
   elements.loadQuizBtn.textContent = "Generating...";

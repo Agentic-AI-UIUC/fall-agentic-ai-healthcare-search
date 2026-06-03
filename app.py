@@ -17,15 +17,12 @@ from pathlib import Path
 import json
 
 import io
+from flask import Flask, jsonify, request, send_from_directory, Response, session, send_file
 from fpdf import FPDF
-
-from flask import Flask, jsonify, request, send_from_directory, Response, send_file
 from dotenv import load_dotenv
 load_dotenv()  # Loads GROQ_API_KEY, SENDER_EMAIL, SENDER_PASSWORD from .env
 
 from werkzeug.utils import secure_filename
-
-import db.database as db
 
 from pipeline.main import run_agent
 from pipeline.email_sender import process_and_send_pre_medical
@@ -34,7 +31,10 @@ from pipeline.agents.patient_sim_agent import (
     run_patient_sim, generate_case_from_chunks, new_session,
     generate_quiz, check_differential,
 )
-from pipeline.agents.scheduling_agent import book_appointment as _book_appointment
+from db.auth import (
+    init_db, create_user, authenticate_user, get_user_by_id,
+    save_conversation, get_conversations, delete_conversation,
+)
 
 # --------------------------------------------------
 # Paths / config
@@ -42,23 +42,30 @@ from pipeline.agents.scheduling_agent import book_appointment as _book_appointme
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", BASE_DIR / "uploads"))
+UPLOAD_DIR = BASE_DIR / "uploads"
+
+INTAKE_DIR = BASE_DIR / "intake_forms"
 
 UPLOAD_DIR.mkdir(exist_ok=True)
+INTAKE_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {
     "pdf", "txt", "doc", "docx", "png", "jpg", "jpeg"
 }
-
-db.init_db()
 
 app = Flask(
     __name__,
     static_folder=str(FRONTEND_DIR),
     static_url_path=""
 )
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
+
+# Initialize auth database
+init_db()
 
 # simple in-memory stores for local dev / prototype
+uploaded_docs = {}
+intake_sessions = {}
 doctor_sessions = {}  # session_id -> {case, messages, session_complete}
 
 
@@ -154,6 +161,102 @@ def health():
 
 
 # --------------------------------------------------
+# Auth API
+# --------------------------------------------------
+
+@app.route("/api/auth/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    if not username or not email or not password:
+        return jsonify({"error": "Username, email, and password are required."}), 400
+    if len(password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters."}), 400
+
+    user = create_user(username, email, password)
+    if not user:
+        return jsonify({"error": "Username or email already taken."}), 409
+
+    session["user_id"] = user["id"]
+    return jsonify({"user": user}), 201
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    if not email or not password:
+        return jsonify({"error": "Email and password are required."}), 400
+
+    user = authenticate_user(email, password)
+    if not user:
+        return jsonify({"error": "Invalid email or password."}), 401
+
+    session["user_id"] = user["id"]
+    return jsonify({"user": user}), 200
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def logout():
+    session.pop("user_id", None)
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def me():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"user": None}), 200
+    user = get_user_by_id(user_id)
+    return jsonify({"user": user}), 200
+
+
+# --------------------------------------------------
+# Conversation persistence API
+# --------------------------------------------------
+
+@app.route("/api/conversations", methods=["GET"])
+def list_conversations():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Not authenticated."}), 401
+    convos = get_conversations(user_id)
+    return jsonify({"conversations": convos}), 200
+
+
+@app.route("/api/conversations", methods=["POST"])
+def save_convo():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Not authenticated."}), 401
+
+    data = request.get_json(silent=True) or {}
+    convo_id = data.get("id")
+    title = data.get("title", "New conversation")
+    messages = json.dumps(data.get("messages", []))
+
+    if not convo_id:
+        return jsonify({"error": "Conversation id is required."}), 400
+
+    save_conversation(user_id, convo_id, title, messages)
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/conversations/<convo_id>", methods=["DELETE"])
+def delete_convo(convo_id):
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Not authenticated."}), 401
+    delete_conversation(user_id, convo_id)
+    return jsonify({"status": "ok"}), 200
+
+
+# --------------------------------------------------
 # Doctor Practice Mode API
 # --------------------------------------------------
 
@@ -163,8 +266,9 @@ def doctor_new_session():
     try:
         data = request.get_json(silent=True) or {}
         seed_query = data.get("seed_query")  # optional speciality hint
+        difficulty = data.get("difficulty", "beginner")
 
-        case = generate_case_from_chunks(seed_query)
+        case = generate_case_from_chunks(seed_query, difficulty=difficulty)
 
         session_id = str(uuid.uuid4())
         doctor_sessions[session_id] = new_session(case)
@@ -202,12 +306,12 @@ def doctor_chat():
         if not doctor_message:
             return jsonify({"error": "Message is required."}), 400
 
-        session = doctor_sessions[session_id]
+        doc_session = doctor_sessions[session_id]
 
-        if session.get("session_complete"):
+        if doc_session.get("session_complete"):
             return jsonify({"error": "Session is already complete. Start a new case."}), 400
 
-        result = run_patient_sim(session, doctor_message)
+        result = run_patient_sim(doc_session, doctor_message)
         doctor_sessions[session_id] = result["session"]
 
         return jsonify({
@@ -264,22 +368,38 @@ def intake():
     try:
         data = request.get_json(silent=True) or {}
 
+        user_id = session.get("user_id")
+        if not user_id:
+            return jsonify({"error": "Unauthorized. Please log in to start intake."}), 401
+
         session_id = data.get("intake_session_id")
+        patient_id = f"user_{user_id}"
         user_message = data.get("message")  # None on first call to start the flow
 
         # Load or create session
-        session = None
-        if session_id:
-            session = db.load_intake_session(session_id)
-        if not session:
+        if session_id and session_id in intake_sessions:
+            current_intake = intake_sessions[session_id]
+        else:
             session_id = str(uuid.uuid4())
-            session = {
+            current_intake = {
                 "step": "greeting",
                 "form": None,
                 "messages": [],
                 "complete": False,
                 "emergency": False,
             }
+            
+            if patient_id:
+                patient_file = INTAKE_DIR / f"{patient_id}.json"
+                if patient_file.exists():
+                    try:
+                        with open(patient_file, "r") as f:
+                            past_form = json.load(f)
+                        past_form["chief_complaint"] = ""
+                        past_form["timestamp"] = ""
+                        current_intake["form"] = past_form
+                    except Exception as e:
+                        print(f"Failed to load patient history: {e}")
 
         # Strip the message if present
         if user_message is not None:
@@ -287,8 +407,14 @@ def intake():
             if not user_message:
                 user_message = None
 
-        result = run_intake_step(session, user_message)
-        db.save_intake_session(session_id, result)
+        result = run_intake_step(current_intake, user_message)
+        intake_sessions[session_id] = result
+
+        # Save completed form to disk
+        if result.get("complete") and result.get("form"):
+            _save_intake_form(session_id, result["form"])
+            if patient_id:
+                _save_intake_form(patient_id, result["form"])
 
         return jsonify({
             "intake_session_id": session_id,
@@ -301,7 +427,6 @@ def intake():
             "intake_form": result.get("form") if result.get("complete") else None,
             "emergency": result.get("emergency", False),
             "options": result.get("options", []),
-            "offer_scheduling": result.get("offer_scheduling", False),
         }), 200
 
     except Exception as e:
@@ -309,6 +434,13 @@ def intake():
             "error": "Intake processing failed.",
             "details": str(e)
         }), 500
+
+
+def _save_intake_form(session_id: str, form: dict):
+    """Save the completed intake form as JSON to disk."""
+    json_path = INTAKE_DIR / f"{session_id}.json"
+    with open(json_path, "w") as f:
+        json.dump(form, f, indent=2)
 
 
 def _format_intake_text(form: dict) -> str:
@@ -388,10 +520,17 @@ def _format_intake_text(form: dict) -> str:
 @app.route("/api/intake/<session_id>/download", methods=["GET"])
 def download_intake(session_id):
     """Download the completed intake form as a PDF file."""
+    current_intake = intake_sessions.get(session_id)
     form = None
-    session = db.load_intake_session(session_id)
-    if session and session.get("complete"):
-        form = session.get("form")
+
+    if current_intake and current_intake.get("complete"):
+        form = current_intake.get("form")
+
+    if not form:
+        json_path = INTAKE_DIR / f"{session_id}.json"
+        if json_path.exists():
+            with open(json_path) as f:
+                form = json.load(f)
 
     if not form:
         return jsonify({"error": "Intake form not found or not yet complete."}), 404
@@ -456,10 +595,10 @@ def email_intake(session_id):
     if not doctor_email:
         return jsonify({"error": "Doctor email is required."}), 400
 
-    session = db.load_intake_session(session_id)
+    current_intake = intake_sessions.get(session_id)
     form = None
-    if session and session.get("complete"):
-        form = session.get("form")
+    if current_intake and current_intake.get("complete"):
+        form = current_intake.get("form")
     if not form:
         return jsonify({"error": "Intake form not found or not complete."}), 404
 
@@ -503,10 +642,17 @@ def email_intake(session_id):
 @app.route("/api/intake/<session_id>/json", methods=["GET"])
 def get_intake_json(session_id):
     """Get the completed intake form as JSON (for future agent use)."""
+    current_intake = intake_sessions.get(session_id)
     form = None
-    session = db.load_intake_session(session_id)
-    if session and session.get("complete"):
-        form = session.get("form")
+
+    if current_intake and current_intake.get("complete"):
+        form = current_intake.get("form")
+
+    if not form:
+        json_path = INTAKE_DIR / f"{session_id}.json"
+        if json_path.exists():
+            with open(json_path) as f:
+                form = json.load(f)
 
     if not form:
         return jsonify({"error": "Intake form not found or not yet complete."}), 404
@@ -519,18 +665,30 @@ def chat():
     try:
         data = request.get_json(silent=True) or {}
 
+        user_id = session.get("user_id")
+        if not user_id:
+            return jsonify({"error": "Unauthorized. Please log in to chat."}), 401
+
         user_message = (data.get("message") or "").strip()
         uploaded_document_id = data.get("uploaded_document_id")
-        conversation_id = data.get("conversation_id") or str(uuid.uuid4())
+        patient_id = f"user_{user_id}"
+        
+        intake_form = None
+        if patient_id:
+            patient_file = INTAKE_DIR / f"{patient_id}.json"
+            if patient_file.exists():
+                try:
+                    with open(patient_file, "r") as f:
+                        intake_form = json.load(f)
+                except Exception as e:
+                    print(f"Failed to load patient history for chat context: {e}")
 
         if not user_message:
             return jsonify({"error": "Message is required."}), 400
 
         # Augment query with document context if a file was uploaded
-        doc_meta = None
-        if uploaded_document_id:
-            doc_meta = db.get_document(uploaded_document_id)
-        if doc_meta:
+        if uploaded_document_id and uploaded_document_id in uploaded_docs:
+            doc_meta = uploaded_docs[uploaded_document_id]
             user_message = (
                 f"{user_message}\n\n"
                 f"Uploaded document context: {doc_meta['original_name']}"
@@ -539,23 +697,15 @@ def chat():
         # Run the LangGraph agent pipeline
         result = run_agent(
             user_message=user_message,
-            conversation_id=conversation_id,
+            conversation_id=data.get("conversation_id"),
             uploaded_document_id=uploaded_document_id,
+            intake_form=intake_form,
         )
-
-        # Persist conversation turn to SQLite
-        original_message = (data.get("message") or "").strip()
-        db.save_message(conversation_id, "user", original_message,
-                        sources=[], emergency=False)
-        db.save_message(conversation_id, "assistant", result["generated_answer"],
-                        sources=result.get("sources", []),
-                        emergency=result.get("emergency_flag", False))
 
         return jsonify({
             "answer": result["generated_answer"],
             "sources": result["sources"],
             "emergency": result.get("emergency_flag", False),
-            "conversation_id": conversation_id,
         }), 200
 
     except Exception as e:
@@ -591,7 +741,13 @@ def upload():
 
         file.save(save_path)
 
-        db.save_document(doc_id, original_name, stored_name, str(save_path))
+        uploaded_docs[doc_id] = {
+            "document_id": doc_id,
+            "original_name": original_name,
+            "stored_name": stored_name,
+            "path": str(save_path),
+            "uploaded_at": datetime.utcnow().isoformat() + "Z"
+        }
 
         return jsonify({
             "document_id": doc_id,
@@ -623,81 +779,6 @@ def pre_medical():
             "error": "Pre-medical form processing failed.",
             "details": str(e)
         }), 500
-
-
-# --------------------------------------------------
-# Appointment Scheduling API
-# --------------------------------------------------
-
-@app.route("/api/appointments", methods=["POST"])
-def create_appointment_route():
-    """Book an appointment from the UI form or LLM tool."""
-    try:
-        data = request.get_json(silent=True) or {}
-
-        patient_name = (data.get("patient_name") or "").strip()
-        email = (data.get("patient_email") or "").strip()
-        reason = (data.get("reason") or "").strip()
-        preferred_date = (data.get("preferred_date") or "").strip()
-        preferred_time = (data.get("preferred_time") or "").strip()
-        intake_session_id = data.get("intake_session_id")
-
-        result = _book_appointment(
-            patient_name=patient_name,
-            email=email,
-            reason=reason,
-            preferred_date=preferred_date,
-            preferred_time=preferred_time,
-            intake_session_id=intake_session_id,
-        )
-
-        if not result["success"]:
-            return jsonify({"error": result["error"]}), 400
-
-        return jsonify(result), 201
-
-    except Exception as e:
-        return jsonify({"error": "Failed to book appointment.", "details": str(e)}), 500
-
-
-@app.route("/api/appointments", methods=["GET"])
-def list_appointments():
-    """List all appointments."""
-    try:
-        appointments = db.get_appointments()
-        return jsonify({"appointments": appointments}), 200
-    except Exception as e:
-        return jsonify({"error": "Failed to fetch appointments.", "details": str(e)}), 500
-
-
-@app.route("/api/appointments/<appointment_id>", methods=["GET"])
-def get_appointment_route(appointment_id):
-    """Get a single appointment by ID."""
-    appt = db.get_appointment(appointment_id)
-    if not appt:
-        return jsonify({"error": "Appointment not found."}), 404
-    return jsonify({"appointment": appt}), 200
-
-
-@app.route("/api/appointments/<appointment_id>", methods=["PATCH"])
-def update_appointment_route(appointment_id):
-    """Update appointment status (confirmed | cancelled)."""
-    try:
-        data = request.get_json(silent=True) or {}
-        status = (data.get("status") or "").strip()
-
-        if status not in ("pending", "confirmed", "cancelled"):
-            return jsonify({"error": "Status must be pending, confirmed, or cancelled."}), 400
-
-        appt = db.get_appointment(appointment_id)
-        if not appt:
-            return jsonify({"error": "Appointment not found."}), 404
-
-        db.update_appointment_status(appointment_id, status)
-        return jsonify({"message": f"Appointment {appointment_id[:8]} updated to {status}."}), 200
-
-    except Exception as e:
-        return jsonify({"error": "Failed to update appointment.", "details": str(e)}), 500
 
 
 # --------------------------------------------------

@@ -302,13 +302,19 @@ def run_intake_step(
 
     # ── Advance to next step ──
     step_idx = get_step_index(step)
-    next_idx = step_idx + 1
-
-    if next_idx >= len(STEPS):
-        # We've reached summary
-        next_step = "summary"
-    else:
-        next_step = STEPS[next_idx]
+    
+    next_step = "summary"
+    for idx in range(step_idx + 1, len(STEPS)):
+        candidate = STEPS[idx]
+        if candidate == "summary":
+            next_step = "summary"
+            break
+            
+        key = "chief_complaint" if candidate == "greeting" else candidate
+        val = form.get(key)
+        if not val or not str(val).strip():
+            next_step = candidate
+            break
 
     # ── Generate the next question ──
     if next_step == "summary":

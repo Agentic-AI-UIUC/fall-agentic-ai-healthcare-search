@@ -9,16 +9,12 @@ the rest of the RAG pipeline.
 
 
 
-# Import the embedding model used to convert text into vectors
-import logging
-import os
-
-from sentence_transformers import SentenceTransformer
+# Import the embedding models used to convert text into vectors and rerank
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 # Import the Qdrant client so Python can talk to the vector database
 from qdrant_client import QdrantClient
-
-logger = logging.getLogger(__name__)
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 
 # -------------------------------
@@ -30,24 +26,28 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAME = "medical_chunks_hybrid_fast"
 
 # Where the Qdrant database is running
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+QDRANT_HOST = "localhost"
+QDRANT_PORT = 6333
 
-# Embedding model used for both ingestion AND query embedding
-# (Switching to the fast BGE model we configured in ingestion.py)
-MODEL_NAME = "BAAI/bge-small-en-v1.5"
+BGE_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+PUBMED_MODEL_NAME = "pritamdeka/S-PubMedBert-MS-MARCO"
+CROSS_ENCODER_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 # Number of results we want Qdrant to return
 TOP_K = 5
 
-
 # -------------------------------
-# Load model + connect to Qdrant
+# Load models + connect to Qdrant
 # -------------------------------
 
-# Load the embedding model (this converts text into vectors)
-print(f"Loading embedding model: {MODEL_NAME}...")
-model = SentenceTransformer(MODEL_NAME)
+print(f"Loading embedding model: {BGE_MODEL_NAME}...")
+bge_model = SentenceTransformer(BGE_MODEL_NAME)
+
+print(f"Loading embedding model: {PUBMED_MODEL_NAME}...")
+pubmed_model = SentenceTransformer(PUBMED_MODEL_NAME)
+
+print(f"Loading Cross-Encoder model: {CROSS_ENCODER_NAME}...")
+cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
 
 # Connect to the Qdrant vector database
 client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
@@ -57,42 +57,86 @@ client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 # Retrieval function
 # -------------------------------
 
-def retrieve_chunks(query_text: str, top_k: int = TOP_K):
+def retrieve_chunks(query_text: str, top_k: int = TOP_K, source_filter: str | None = None):
     """
-    Takes a user's question and returns the most semantically similar
-    chunks from the vector database.
+    Takes a user's question, creates two dense vectors, searches Qdrant,
+    fuses results with Reciprocal Rank Fusion (RRF), and re-ranks with a CrossEncoder.
     """
 
-    # BGE models perform best when queries are prefixed with this specific instruction
+    # BGE asks for a prefix instruction
     bge_query = "Represent this sentence for searching relevant passages: " + query_text
+    bge_vector = bge_model.encode(bge_query).tolist()
+    
+    pubmed_vector = pubmed_model.encode(query_text).tolist()
 
-    # Convert the user query into a vector using the same embedding model
-    query_vector = model.encode(bge_query).tolist()
-
-    try:
-        # Ask Qdrant to find the most similar stored vectors (targeting the 'bge' named vectors)
-        search_result = client.query_points(
-            collection_name=COLLECTION_NAME,
-            query=query_vector,
-            using="bge",  # We must specify which named vector to query in our hybrid collection
-            limit=top_k,  # number of results we want back
+    # Optional metadata filter setup
+    query_filter = None
+    if source_filter:
+        query_filter = Filter(
+            must=[FieldCondition(key="source", match=MatchValue(value=source_filter))]
         )
-    except Exception as exc:
-        logger.warning("Qdrant retrieval failed for collection %s: %s", COLLECTION_NAME, exc)
+
+    # 1. Broad retrieval phase - Get top 15 from both embeddings
+    candidate_limit = 15
+
+    bge_result = client.query_points(
+        collection_name=COLLECTION_NAME,
+        query=bge_vector,
+        using="bge",
+        query_filter=query_filter,
+        limit=candidate_limit,
+    )
+
+    pubmed_result = client.query_points(
+        collection_name=COLLECTION_NAME,
+        query=pubmed_vector,
+        using="pubmedbert",
+        query_filter=query_filter,
+        limit=candidate_limit,
+    )
+
+    # 2. Reciprocal Rank Fusion (RRF)
+    rrf_pool = {}
+    
+    def add_to_pool(search_result):
+        for rank, point in enumerate(search_result.points):
+            if point.id not in rrf_pool:
+                rrf_pool[point.id] = {
+                    "id": point.id,
+                    "text": point.payload.get("text", ""),
+                    "source": point.payload.get("source", "Unknown Document"),
+                    "score": 0.0
+                }
+            # RRF formula: 1 / (k + rank) where k is typically 60
+            rrf_pool[point.id]["score"] += 1.0 / (60.0 + rank)
+            
+    add_to_pool(bge_result)
+    add_to_pool(pubmed_result)
+    
+    fused_candidates = list(rrf_pool.values())
+    # Sort by RRF score descending
+    fused_candidates.sort(key=lambda x: x["score"], reverse=True)
+    
+    # We'll take the top 15 fused candidates to re-rank
+    top_fused = fused_candidates[:candidate_limit]
+
+    # If no results found, return empty
+    if not top_fused:
         return []
 
-    # Format the results so they are easier to work with
-    results = []
+    # 3. Cross-Encoder Re-Ranking phase
+    # The cross-encoder takes pairs of (query, document) to evaluate semantic relevance highly accurately.
+    cross_input = [[query_text, candidate["text"]] for candidate in top_fused]
+    cross_scores = cross_encoder.predict(cross_input)
+    
+    # Update scores with cross-encoder scores
+    for candidate, x_score in zip(top_fused, cross_scores):
+        candidate["score"] = float(x_score)
+        
+    # Sort again based directly on CrossEncoder precision score
+    top_fused.sort(key=lambda x: x["score"], reverse=True)
 
-    for point in search_result.points:
-        results.append({
-            "id": point.id,                     # ID assigned during ingestion
-            "score": point.score,               # similarity score
-            "text": point.payload.get("text", ""),  # the original chunk text
-            "source": point.payload.get("source", "Unknown Document") # the source document name
-        })
-
-    return results
+    return top_fused[:top_k]
 
 
 # -------------------------------
