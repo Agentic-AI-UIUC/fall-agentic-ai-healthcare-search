@@ -327,6 +327,43 @@
           <p class="file-meta">Upload a file to begin document review.</p>
         </div>
 
+        <div class="review-section-label">Appointments</div>
+        <form id="appointmentForm" class="appointment-card">
+          <div>
+            <h4>Book an appointment</h4>
+            <p>Share a preferred visit time and the clinic team can follow up.</p>
+          </div>
+
+          <label>
+            Name
+            <input id="appointmentName" name="patient_name" type="text" autocomplete="name" required placeholder="Full name" />
+          </label>
+
+          <label>
+            Email
+            <input id="appointmentEmail" name="patient_email" type="email" autocomplete="email" required placeholder="you@example.com" />
+          </label>
+
+          <label>
+            Reason for visit
+            <textarea id="appointmentReason" name="reason" rows="2" placeholder="Brief reason for the appointment"></textarea>
+          </label>
+
+          <div class="appointment-grid">
+            <label>
+              Date
+              <input id="appointmentDate" name="preferred_date" type="date" required />
+            </label>
+            <label>
+              Time
+              <input id="appointmentTime" name="preferred_time" type="time" required />
+            </label>
+          </div>
+
+          <button id="appointmentSubmitBtn" type="submit" class="primary-btn full-width">Request Appointment</button>
+          <p id="appointmentStatus" class="appointment-status" aria-live="polite"></p>
+        </form>
+
         <div class="review-section-label">Quick actions</div>
         <div class="breakdown-grid">
           <button class="breakdown-card" data-prompt="Explain this document in simple language.">Explain simply</button>
@@ -423,6 +460,6 @@
     </div>
   </div>
 
-  <script src="./app.js?v=5"></script>
+  <script src="./app.js?v=6"></script>
 </body>
 </html>

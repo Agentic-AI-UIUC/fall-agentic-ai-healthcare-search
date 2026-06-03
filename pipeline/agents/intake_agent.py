@@ -276,6 +276,7 @@ def run_intake_step(
                 "total_steps": len(STEPS),
                 "step_label": "Complete",
                 "response": done_msg,
+                "offer_scheduling": True,
             }
         else:
             # User wants to change something — start over

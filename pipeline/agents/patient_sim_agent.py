@@ -51,7 +51,7 @@ def _get_client():
         from groq import Groq
         return Groq(api_key=api_key)
     except ImportError:
-        logger.error("groq package is not installed. Run: pip install groq")
+        logger.error("groq package is not installed. Run: uv sync")
         return None
 
 

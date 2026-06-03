@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${APP_PORT:-5001}:5000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      DB_PATH: /data/app.db
+      UPLOAD_DIR: /data/uploads
+      HF_HOME: /cache/huggingface
+    volumes:
+      - app_data:/data
+      - model_cache:/cache
+    depends_on:
+      qdrant:
+        condition: service_started
+
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+volumes:
+  app_data:
+  model_cache:
+  qdrant_storage:
